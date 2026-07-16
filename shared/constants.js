@@ -3,14 +3,18 @@ export const APP_NAME = "ShieldFocus";
 export const STORAGE_KEYS = Object.freeze({
   settings: "settings",
   blockedDomains: "blockedDomains",
+  blockedRules: "blockedRules",
   allowedDomains: "allowedDomains",
-  logs: "logs"
+  logs: "logs",
+  categories: "categories",
+  schedules: "schedules"
 });
 
 export const DEFAULT_SETTINGS = Object.freeze({
   enabled: true,
   strictMode: true,
   aiEnabled: false,
+  theme: "system",
   logLimit: 200
 });
 
@@ -35,4 +39,3 @@ export const RULE_PRIORITIES = Object.freeze({
   allow: 2,
   block: 1
 });
-

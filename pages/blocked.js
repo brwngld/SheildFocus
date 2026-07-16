@@ -1,3 +1,6 @@
+import { getState } from "../storage/settings-store.js";
+import { applyTheme } from "../shared/theme.js";
+
 function readQuery() {
   const params = new URLSearchParams(window.location.search);
   return {
@@ -32,5 +35,15 @@ function render() {
   }
 }
 
-render();
+async function init() {
+  try {
+    const state = await getState();
+    applyTheme(state.settings.theme);
+  } catch {
+    applyTheme("system");
+  }
 
+  render();
+}
+
+void init();

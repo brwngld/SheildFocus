@@ -4,7 +4,8 @@
   "version": "0.1.0",
   "description": "A local-first Chrome blocker with strict, privacy-preserving defaults.",
   "action": {
-    "default_title": "ShieldFocus"
+    "default_title": "ShieldFocus",
+    "default_popup": "popup/popup.html"
   },
   "background": {
     "service_worker": "background/service-worker.js",
@@ -13,7 +14,8 @@
   "options_page": "pages/options.html",
   "permissions": [
     "storage",
-    "declarativeNetRequest"
+    "declarativeNetRequest",
+    "alarms"
   ],
   "host_permissions": [
     "http://*/*",

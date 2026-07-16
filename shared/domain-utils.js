@@ -38,7 +38,17 @@ export function normalizeDomainInput(input) {
     .split("?")[0]
     .split("#")[0];
 
-  return normalizeHostname(value);
+  const normalized = normalizeHostname(value);
+
+  if (!normalized || /\s/.test(normalized)) {
+    return "";
+  }
+
+  if (normalized !== "localhost" && !normalized.includes(".")) {
+    return "";
+  }
+
+  return normalized;
 }
 
 export function dedupeDomains(domains = []) {
@@ -100,6 +110,5 @@ export function compactText(value, maxLength = 160) {
   if (text.length <= maxLength) {
     return text;
   }
-  return `${text.slice(0, maxLength - 1)}…`;
+  return `${text.slice(0, maxLength - 1)}...`;
 }
-

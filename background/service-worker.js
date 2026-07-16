@@ -1,5 +1,6 @@
 import { MESSAGE_TYPES, STORAGE_KEYS } from "../shared/constants.js";
 import { buildBlockedPageUrl } from "../shared/domain-utils.js";
+import { isAnyScheduleActive, isScheduleActive } from "../shared/schedule.js";
 import { createDecisionEngine } from "./decision-engine.js";
 import { createRuleManager } from "./rule-manager.js";
 import { appendDecision } from "../storage/decision-log.js";
@@ -41,10 +42,33 @@ async function loadCatalogs() {
 async function syncRulesFromStorage() {
   const state = await getState();
   const catalogs = await loadCatalogs();
+  const activeSchedules = state.schedules.length === 0 || isAnyScheduleActive(state.schedules);
+  const categoryBlockedDomains = state.categories.flatMap((category) => Array.isArray(category.domains) ? category.domains : []);
+  const activeRuleDomains = activeSchedules
+    ? state.blockedRules
+        .filter((rule) => {
+          if (rule.enabled === false) {
+            return false;
+          }
+
+          if (!rule.scheduleId) {
+            return true;
+          }
+
+          const schedule = state.schedules.find((item) => item.id === rule.scheduleId);
+          return Boolean(schedule && isScheduleActive(schedule));
+        })
+        .map((rule) => rule.domain)
+    : [];
+  const blockedDomains = [...new Set([
+    ...state.blockedDomains,
+    ...categoryBlockedDomains,
+    ...activeRuleDomains
+  ])];
 
   try {
     await ruleManager.syncBlockingRules({
-      blockedDomains: state.blockedDomains,
+      blockedDomains: activeSchedules ? blockedDomains : [],
       allowedDomains: state.allowedDomains,
       defaultBlockedDomains: catalogs.defaultBlockedDomains
     });
@@ -69,6 +93,14 @@ chrome.runtime.onStartup.addListener(() => {
   void bootstrap();
 });
 
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === "shieldfocus-schedule-refresh") {
+    void syncRulesFromStorage();
+  }
+});
+
+chrome.alarms.create("shieldfocus-schedule-refresh", { periodInMinutes: 1 });
+
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== "local") {
     return;
@@ -77,14 +109,13 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   if (
     changes[STORAGE_KEYS.settings] ||
     changes[STORAGE_KEYS.blockedDomains] ||
-    changes[STORAGE_KEYS.allowedDomains]
+    changes[STORAGE_KEYS.blockedRules] ||
+    changes[STORAGE_KEYS.allowedDomains] ||
+    changes[STORAGE_KEYS.categories] ||
+    changes[STORAGE_KEYS.schedules]
   ) {
     void syncRulesFromStorage();
   }
-});
-
-chrome.action.onClicked.addListener(() => {
-  void chrome.runtime.openOptionsPage();
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -98,9 +129,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const engine = createDecisionEngine({
       settings: state.settings,
       blockedDomains: state.blockedDomains,
+      blockedRules: state.blockedRules,
       allowedDomains: state.allowedDomains,
       defaultBlockedDomains: catalogs.defaultBlockedDomains,
-      safeDomains: catalogs.safeDomains
+      safeDomains: catalogs.safeDomains,
+      categories: state.categories,
+      schedules: state.schedules
     });
 
     const decision = await engine.decide(message.page ?? {});
