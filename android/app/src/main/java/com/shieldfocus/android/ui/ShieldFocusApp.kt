@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -108,7 +107,7 @@ fun ShieldFocusApp(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
+                        Column {
                             Text("Strict mode", fontWeight = FontWeight.Medium)
                             Text(
                                 "Block uncertain domains instead of warning.",
@@ -123,7 +122,7 @@ fun ShieldFocusApp(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
+                        Column {
                             Text("Redirect delay", fontWeight = FontWeight.Medium)
                             Text(
                                 "$redirectDelaySeconds seconds on the desktop flow.",
@@ -281,7 +280,7 @@ private fun DomainSection(
                 OutlinedTextField(
                     value = inputValue,
                     onValueChange = onInputChange,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.fillMaxWidth(0.78f),
                     singleLine = true,
                     shape = RoundedCornerShape(18.dp),
                     placeholder = { Text(placeholder) }

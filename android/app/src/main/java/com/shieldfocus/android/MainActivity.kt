@@ -39,12 +39,13 @@ class MainActivity : ComponentActivity() {
             var allowedDomains by remember {
                 mutableStateOf(protectionStore.loadAllowedDomains().sorted())
             }
+            var startVpnFlow: (() -> Unit)? = null
 
             val vpnPermissionLauncher = rememberLauncherForActivityResult(
                 contract = ActivityResultContracts.StartActivityForResult()
-            ) { result ->
+            ) { result -> 
                 if (result.resultCode == Activity.RESULT_OK) {
-                    startVpnFlow()
+                    startVpnFlow?.invoke()
                 } else {
                     settings = settings.copy(enabled = false)
                     protectionStore.saveSettings(settings)
@@ -55,31 +56,27 @@ class MainActivity : ComponentActivity() {
                 contract = ActivityResultContracts.RequestPermission()
             ) { isGranted ->
                 if (isGranted) {
-                    startVpnFlow()
+                    startVpnFlow?.invoke()
                 }
             }
 
-            fun startVpnFlow() {
+            startVpnFlow = {
                 val prepareIntent = VpnService.prepare(this@MainActivity)
                 if (prepareIntent != null) {
                     vpnPermissionLauncher.launch(prepareIntent)
-                    return
+                } else if (
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    ContextCompat.checkSelfPermission(
+                        this@MainActivity,
+                        Manifest.permission.POST_NOTIFICATIONS
+                    ) != PackageManager.PERMISSION_GRANTED
+                ) {
+                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                } else {
+                    settings = settings.copy(enabled = true)
+                    protectionStore.saveSettings(settings)
+                    startVpnService()
                 }
-
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    if (ContextCompat.checkSelfPermission(
-                            this@MainActivity,
-                            Manifest.permission.POST_NOTIFICATIONS
-                        ) != PackageManager.PERMISSION_GRANTED
-                    ) {
-                        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                        return
-                    }
-                }
-
-                settings = settings.copy(enabled = true)
-                protectionStore.saveSettings(settings)
-                startVpnService()
             }
 
             fun stopProtection() {
@@ -112,7 +109,7 @@ class MainActivity : ComponentActivity() {
                     allowedDomains = allowedDomains,
                     onProtectionToggle = { enabled ->
                         if (enabled) {
-                            startVpnFlow()
+                            startVpnFlow?.invoke()
                         } else {
                             stopProtection()
                         }
@@ -121,7 +118,7 @@ class MainActivity : ComponentActivity() {
                         updateSettings(settings.copy(strictMode = enabled))
                     },
                     onRequestVpnSetup = {
-                        startVpnFlow()
+                        startVpnFlow?.invoke()
                     },
                     onAddBlockedDomain = { domain ->
                         updateBlockedDomains(protectionStore.addBlockedDomain(domain))

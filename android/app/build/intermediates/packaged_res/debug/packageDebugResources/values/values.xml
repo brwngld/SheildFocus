@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ShieldFocus</string>
+    <string name="home_subtitle">Device-wide local filtering</string>
+    <string name="home_title">Android</string>
+    <style name="Theme.ShieldFocus" parent="Theme.Material3.DayNight.NoActionBar"/>
+</resources>
