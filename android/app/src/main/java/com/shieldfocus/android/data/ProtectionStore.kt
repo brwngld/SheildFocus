@@ -10,6 +10,7 @@ import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStoreFile
 import com.shieldfocus.android.domain.DomainNormalizer
 import com.shieldfocus.android.model.BlockingCategory
+import com.shieldfocus.android.model.BlockingSchedule
 import com.shieldfocus.android.model.Decision
 import com.shieldfocus.android.model.ProtectionSettings
 import kotlinx.coroutines.flow.Flow
@@ -29,6 +30,7 @@ private val KEY_LOGGING_ENABLED = booleanPreferencesKey("logging_enabled")
 private val KEY_BLOCKED_DOMAINS = stringSetPreferencesKey("blocked_domains")
 private val KEY_ALLOWED_DOMAINS = stringSetPreferencesKey("allowed_domains")
 private val KEY_CATEGORIES = stringPreferencesKey("blocking_categories")
+private val KEY_SCHEDULES = stringPreferencesKey("blocking_schedules")
 private val KEY_DECISION_LOGS = stringPreferencesKey("decision_logs")
 
 private val CATEGORY_COLORS = listOf(
@@ -39,6 +41,8 @@ private val CATEGORY_COLORS = listOf(
     "#8B5CF6",
     "#14B8A6"
 )
+
+private val DEFAULT_SCHEDULE_DAYS = setOf(2, 3, 4, 5, 6)
 
 class ProtectionStore(context: Context) {
     private val dataStore = PreferenceDataStoreFactory.create(
@@ -70,22 +74,30 @@ class ProtectionStore(context: Context) {
         dataStore.data.first()[KEY_BLOCKED_DOMAINS].orEmpty()
     }
 
-    fun loadEffectiveBlockedDomains(): Set<String> = runBlocking {
-        val preferences = dataStore.data.first()
-        val manual = preferences[KEY_BLOCKED_DOMAINS].orEmpty()
-        val categoryDomains = decodeCategories(preferences[KEY_CATEGORIES].orEmpty())
-            .filter { it.enabled }
-            .flatMap { it.domains }
-            .toSet()
-        manual + categoryDomains
-    }
-
     fun loadAllowedDomains(): Set<String> = runBlocking {
         dataStore.data.first()[KEY_ALLOWED_DOMAINS].orEmpty()
     }
 
     fun loadCategories(): List<BlockingCategory> = runBlocking {
         decodeCategories(dataStore.data.first()[KEY_CATEGORIES].orEmpty())
+    }
+
+    fun loadSchedules(): List<BlockingSchedule> = runBlocking {
+        decodeSchedules(dataStore.data.first()[KEY_SCHEDULES].orEmpty())
+    }
+
+    fun loadActiveScheduleIds(nowMillis: Long = System.currentTimeMillis()): Set<String> = runBlocking {
+        loadSchedules().filter { it.isActiveAt(nowMillis) }.mapTo(mutableSetOf()) { it.id }
+    }
+
+    fun loadEffectiveBlockedDomains(activeScheduleIds: Set<String>): Set<String> = runBlocking {
+        val preferences = dataStore.data.first()
+        val manual = preferences[KEY_BLOCKED_DOMAINS].orEmpty()
+        val categoryDomains = decodeCategories(preferences[KEY_CATEGORIES].orEmpty())
+            .filter { it.enabled && (it.scheduleId.isBlank() || it.scheduleId in activeScheduleIds) }
+            .flatMap { it.domains }
+            .toSet()
+        manual + categoryDomains
     }
 
     fun decisionHistoryFlow(): Flow<List<Decision>> {
@@ -108,59 +120,6 @@ class ProtectionStore(context: Context) {
         dataStore.edit { preferences ->
             preferences[KEY_ALLOWED_DOMAINS] = domains.mapNotNull { normalizeDomain(it) }.toSet()
         }
-    }
-
-    fun saveCategories(categories: List<BlockingCategory>) = runBlocking {
-        dataStore.edit { preferences ->
-            preferences[KEY_CATEGORIES] = encodeCategories(categories)
-        }
-    }
-
-    fun addCategory(name: String): List<BlockingCategory> {
-        val next = loadCategories().toMutableList()
-        val normalizedName = name.trim()
-        if (normalizedName.isBlank()) return next
-
-        val category = BlockingCategory(
-            id = UUID.randomUUID().toString(),
-            name = normalizedName,
-            colorHex = CATEGORY_COLORS[next.size % CATEGORY_COLORS.size]
-        )
-        next.add(category)
-        saveCategories(next)
-        return next
-    }
-
-    fun removeCategory(categoryId: String): List<BlockingCategory> {
-        val next = loadCategories().filterNot { it.id == categoryId }
-        saveCategories(next)
-        return next
-    }
-
-    fun addDomainToCategory(categoryId: String, domain: String): List<BlockingCategory> {
-        val normalized = normalizeDomain(domain) ?: return loadCategories()
-        val next = loadCategories().map { category ->
-            if (category.id != categoryId) {
-                category
-            } else {
-                category.copy(domains = (category.domains + normalized).distinct())
-            }
-        }
-        saveCategories(next)
-        return next
-    }
-
-    fun removeDomainFromCategory(categoryId: String, domain: String): List<BlockingCategory> {
-        val normalized = normalizeDomain(domain) ?: return loadCategories()
-        val next = loadCategories().map { category ->
-            if (category.id != categoryId) {
-                category
-            } else {
-                category.copy(domains = category.domains.filterNot { it == normalized })
-            }
-        }
-        saveCategories(next)
-        return next
     }
 
     fun addBlockedDomain(domain: String): Set<String> {
@@ -191,6 +150,105 @@ class ProtectionStore(context: Context) {
         return next
     }
 
+    fun saveCategories(categories: List<BlockingCategory>) = runBlocking {
+        dataStore.edit { preferences ->
+            preferences[KEY_CATEGORIES] = encodeCategories(categories)
+        }
+    }
+
+    fun saveSchedules(schedules: List<BlockingSchedule>) = runBlocking {
+        dataStore.edit { preferences ->
+            preferences[KEY_SCHEDULES] = encodeSchedules(schedules)
+        }
+    }
+
+    fun addCategory(name: String): List<BlockingCategory> {
+        val next = loadCategories().toMutableList()
+        val normalizedName = name.trim()
+        if (normalizedName.isBlank()) return next
+
+        val category = BlockingCategory(
+            id = UUID.randomUUID().toString(),
+            name = normalizedName,
+            colorHex = CATEGORY_COLORS[next.size % CATEGORY_COLORS.size]
+        )
+        next.add(category)
+        saveCategories(next)
+        return next
+    }
+
+    fun removeCategory(categoryId: String): List<BlockingCategory> {
+        val next = loadCategories().filterNot { it.id == categoryId }
+        saveCategories(next)
+        return next
+    }
+
+    fun assignScheduleToCategory(categoryId: String, scheduleName: String): List<BlockingCategory> {
+        val scheduleId = scheduleName.trim().takeIf { it.isNotBlank() }?.let { name ->
+            loadSchedules().firstOrNull { it.name.equals(name, ignoreCase = true) }?.id
+        }.orEmpty()
+
+        val next = loadCategories().map { category ->
+            if (category.id == categoryId) category.copy(scheduleId = scheduleId) else category
+        }
+        saveCategories(next)
+        return next
+    }
+
+    fun addDomainToCategory(categoryId: String, domain: String): List<BlockingCategory> {
+        val normalized = normalizeDomain(domain) ?: return loadCategories()
+        val next = loadCategories().map { category ->
+            if (category.id != categoryId) {
+                category
+            } else {
+                category.copy(domains = (category.domains + normalized).distinct())
+            }
+        }
+        saveCategories(next)
+        return next
+    }
+
+    fun removeDomainFromCategory(categoryId: String, domain: String): List<BlockingCategory> {
+        val normalized = normalizeDomain(domain) ?: return loadCategories()
+        val next = loadCategories().map { category ->
+            if (category.id != categoryId) {
+                category
+            } else {
+                category.copy(domains = category.domains.filterNot { it == normalized })
+            }
+        }
+        saveCategories(next)
+        return next
+    }
+
+    fun addSchedule(name: String): List<BlockingSchedule> {
+        val next = loadSchedules().toMutableList()
+        val normalizedName = name.trim()
+        if (normalizedName.isBlank()) return next
+
+        val schedule = BlockingSchedule(
+            id = UUID.randomUUID().toString(),
+            name = normalizedName,
+            activeDays = DEFAULT_SCHEDULE_DAYS,
+            startMinuteOfDay = 9 * 60,
+            endMinuteOfDay = 17 * 60,
+            enabled = true
+        )
+        next.add(schedule)
+        saveSchedules(next)
+        return next
+    }
+
+    fun removeSchedule(scheduleId: String): List<BlockingSchedule> {
+        val next = loadSchedules().filterNot { it.id == scheduleId }
+        saveSchedules(next)
+        val updatedCategories = loadCategories().map { category ->
+            if (category.scheduleId == scheduleId) category.copy(scheduleId = "") else category
+        }
+        saveCategories(updatedCategories)
+        return next
+    }
+
     fun appendDecision(decision: Decision) = runBlocking {
         dataStore.edit { preferences ->
             val current = decodeDecisionHistory(preferences[KEY_DECISION_LOGS].orEmpty()).toMutableList()
@@ -212,12 +270,14 @@ class ProtectionStore(context: Context) {
 
     private fun encodeCategories(categories: List<BlockingCategory>): String {
         return categories.joinToString(separator = "\n") { category ->
+            val domainSegment = category.domains.joinToString(separator = ",") { escape(it) }
             listOf(
                 escape(category.id),
                 escape(category.name),
                 escape(category.colorHex),
+                escape(category.scheduleId),
                 if (category.enabled) "1" else "0",
-                category.domains.joinToString(separator = ",") { escape(it) }
+                domainSegment
             ).joinToString(separator = "|")
         }
     }
@@ -228,22 +288,70 @@ class ProtectionStore(context: Context) {
             .filter { it.isNotBlank() }
             .mapNotNull { line ->
                 val parts = splitEncoded(line, '|')
-                if (parts.size != 5) {
+                if (parts.size == 5) {
+                    val domains = if (parts[4].isBlank()) emptyList() else splitEncoded(parts[4], ',')
+                    BlockingCategory(
+                        id = parts[0],
+                        name = parts[1],
+                        colorHex = parts[2],
+                        domains = domains,
+                        enabled = parts[3] == "1"
+                    )
+                } else if (parts.size >= 6) {
+                    val domains = if (parts[5].isBlank()) emptyList() else splitEncoded(parts[5], ',')
+                    BlockingCategory(
+                        id = parts[0],
+                        name = parts[1],
+                        colorHex = parts[2],
+                        scheduleId = parts[3],
+                        enabled = parts[4] == "1",
+                        domains = domains
+                    )
+                } else {
+                    null
+                }
+            }
+            .toList()
+    }
+
+    private fun encodeSchedules(schedules: List<BlockingSchedule>): String {
+        return schedules.joinToString(separator = "\n") { schedule ->
+            listOf(
+                escape(schedule.id),
+                escape(schedule.name),
+                if (schedule.enabled) "1" else "0",
+                schedule.startMinuteOfDay.toString(),
+                schedule.endMinuteOfDay.toString(),
+                schedule.activeDays.sorted().joinToString(separator = ",")
+            ).joinToString(separator = "|")
+        }
+    }
+
+    private fun decodeSchedules(payload: String): List<BlockingSchedule> {
+        if (payload.isBlank()) return emptyList()
+        return payload.lineSequence()
+            .filter { it.isNotBlank() }
+            .mapNotNull { line ->
+                val parts = splitEncoded(line, '|')
+                if (parts.size != 6) {
                     return@mapNotNull null
                 }
 
-                val domains = if (parts[4].isBlank()) {
-                    emptyList()
+                val startMinute = parts[3].toIntOrNull() ?: return@mapNotNull null
+                val endMinute = parts[4].toIntOrNull() ?: return@mapNotNull null
+                val activeDays = if (parts[5].isBlank()) {
+                    emptySet()
                 } else {
-                    splitEncoded(parts[4], ',')
+                    splitEncoded(parts[5], ',').mapNotNull { it.toIntOrNull() }.toSet()
                 }
 
-                BlockingCategory(
+                BlockingSchedule(
                     id = parts[0],
                     name = parts[1],
-                    colorHex = parts[2],
-                    enabled = parts[3] == "1",
-                    domains = domains
+                    enabled = parts[2] == "1",
+                    startMinuteOfDay = startMinute,
+                    endMinuteOfDay = endMinute,
+                    activeDays = activeDays
                 )
             }
             .toList()

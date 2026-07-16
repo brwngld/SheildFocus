@@ -35,6 +35,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.shieldfocus.android.model.BlockingCategory
+import com.shieldfocus.android.model.BlockingSchedule
 import com.shieldfocus.android.model.Decision
 import java.text.DateFormat
 import java.util.Date
@@ -50,6 +51,7 @@ fun ShieldFocusApp(
     blockedDomains: List<String>,
     allowedDomains: List<String>,
     categories: List<BlockingCategory>,
+    schedules: List<BlockingSchedule>,
     decisionLogs: List<Decision>,
     onProtectionToggle: (Boolean) -> Unit,
     onStrictModeToggle: (Boolean) -> Unit,
@@ -64,11 +66,15 @@ fun ShieldFocusApp(
     onRemoveCategory: (String) -> Unit,
     onAddDomainToCategory: (String, String) -> Unit,
     onRemoveDomainFromCategory: (String, String) -> Unit,
+    onAssignScheduleToCategory: (String, String) -> Unit,
+    onAddSchedule: (String) -> Unit,
+    onRemoveSchedule: (String) -> Unit,
     onClearDecisionLogs: () -> Unit
 ) {
     var blockedInput by remember { mutableStateOf("") }
     var allowedInput by remember { mutableStateOf("") }
     var categoryInput by remember { mutableStateOf("") }
+    var scheduleInput by remember { mutableStateOf("") }
 
     Scaffold(
         topBar = {
@@ -208,6 +214,7 @@ fun ShieldFocusApp(
 
             CategorySection(
                 categories = categories,
+                schedules = schedules,
                 inputValue = categoryInput,
                 onInputChange = { categoryInput = it },
                 onSubmit = {
@@ -219,7 +226,22 @@ fun ShieldFocusApp(
                 },
                 onRemoveCategory = onRemoveCategory,
                 onAddDomain = onAddDomainToCategory,
-                onRemoveDomain = onRemoveDomainFromCategory
+                onRemoveDomain = onRemoveDomainFromCategory,
+                onAssignSchedule = onAssignScheduleToCategory
+            )
+
+            ScheduleSection(
+                schedules = schedules,
+                inputValue = scheduleInput,
+                onInputChange = { scheduleInput = it },
+                onSubmit = {
+                    val value = scheduleInput.trim()
+                    if (value.isNotEmpty()) {
+                        onAddSchedule(value)
+                        scheduleInput = ""
+                    }
+                },
+                onRemoveSchedule = onRemoveSchedule
             )
 
             DomainSection(
@@ -406,12 +428,14 @@ private fun DomainSection(
 @Composable
 private fun CategorySection(
     categories: List<BlockingCategory>,
+    schedules: List<BlockingSchedule>,
     inputValue: String,
     onInputChange: (String) -> Unit,
     onSubmit: () -> Unit,
     onRemoveCategory: (String) -> Unit,
     onAddDomain: (String, String) -> Unit,
-    onRemoveDomain: (String, String) -> Unit
+    onRemoveDomain: (String, String) -> Unit,
+    onAssignSchedule: (String, String) -> Unit
 ) {
     Card(
         shape = RoundedCornerShape(24.dp),
@@ -456,9 +480,11 @@ private fun CategorySection(
                     categories.forEach { category ->
                         CategoryCard(
                             category = category,
+                            schedules = schedules,
                             onRemoveCategory = onRemoveCategory,
                             onAddDomain = onAddDomain,
-                            onRemoveDomain = onRemoveDomain
+                            onRemoveDomain = onRemoveDomain,
+                            onAssignSchedule = onAssignSchedule
                         )
                     }
                 }
@@ -470,12 +496,16 @@ private fun CategorySection(
 @Composable
 private fun CategoryCard(
     category: BlockingCategory,
+    schedules: List<BlockingSchedule>,
     onRemoveCategory: (String) -> Unit,
     onAddDomain: (String, String) -> Unit,
-    onRemoveDomain: (String, String) -> Unit
+    onRemoveDomain: (String, String) -> Unit,
+    onAssignSchedule: (String, String) -> Unit
 ) {
     var domainInput by remember(category.id) { mutableStateOf("") }
+    var scheduleInput by remember(category.id) { mutableStateOf("") }
     val accent = Color(android.graphics.Color.parseColor(category.colorHex))
+    val currentScheduleName = schedules.firstOrNull { it.id == category.scheduleId }?.name ?: "Always on"
 
     Card(
         shape = RoundedCornerShape(20.dp),
@@ -536,6 +566,38 @@ private fun CategoryCard(
                 }
             }
 
+            Text(
+                "Schedule: $currentScheduleName",
+                style = MaterialTheme.typography.bodySmall
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = scheduleInput,
+                    onValueChange = { scheduleInput = it },
+                    modifier = Modifier.fillMaxWidth(0.74f),
+                    singleLine = true,
+                    shape = RoundedCornerShape(18.dp),
+                    placeholder = { Text("Schedule name") }
+                )
+                Button(
+                    onClick = {
+                        val value = scheduleInput.trim()
+                        if (value.isNotEmpty()) {
+                            onAssignSchedule(category.id, value)
+                            scheduleInput = ""
+                        }
+                    },
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)
+                ) {
+                    Text("Assign")
+                }
+            }
+
             if (category.domains.isEmpty()) {
                 Text("No sites yet", style = MaterialTheme.typography.bodySmall)
             } else {
@@ -549,6 +611,90 @@ private fun CategoryCard(
                             Text(domain, style = MaterialTheme.typography.bodyMedium)
                             TextButton(onClick = { onRemoveDomain(category.id, domain) }) {
                                 Text("Remove")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ScheduleSection(
+    schedules: List<BlockingSchedule>,
+    inputValue: String,
+    onInputChange: (String) -> Unit,
+    onSubmit: () -> Unit,
+    onRemoveSchedule: (String) -> Unit
+) {
+    Card(
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text("Schedules", style = MaterialTheme.typography.titleMedium)
+                    Text("Time windows that activate category blocks", style = MaterialTheme.typography.bodySmall)
+                }
+                Button(
+                    onClick = onSubmit,
+                    contentPadding = PaddingValues(horizontal = 18.dp, vertical = 12.dp)
+                ) {
+                    Text("New Schedule")
+                }
+            }
+
+            OutlinedTextField(
+                value = inputValue,
+                onValueChange = onInputChange,
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                shape = RoundedCornerShape(18.dp),
+                placeholder = { Text("e.g. Work Hours") }
+            )
+
+            if (schedules.isEmpty()) {
+                Text("No schedules yet", style = MaterialTheme.typography.bodyMedium)
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    schedules.forEach { schedule ->
+                        Card(
+                            shape = RoundedCornerShape(18.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant
+                            )
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column {
+                                        Text(schedule.name, fontWeight = FontWeight.SemiBold)
+                                        Text(
+                                            "${formatDays(schedule.activeDays)}  •  ${formatMinute(schedule.startMinuteOfDay)} - ${formatMinute(schedule.endMinuteOfDay)}",
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                    }
+                                    TextButton(onClick = { onRemoveSchedule(schedule.id) }) {
+                                        Text("Remove")
+                                    }
+                                }
                             }
                         }
                     }
@@ -628,4 +774,29 @@ private fun DecisionLogSection(
             }
         }
     }
+}
+
+private fun formatDays(days: Set<Int>): String {
+    val names = mapOf(
+        1 to "Sun",
+        2 to "Mon",
+        3 to "Tue",
+        4 to "Wed",
+        5 to "Thu",
+        6 to "Fri",
+        7 to "Sat"
+    )
+    return days.sorted().joinToString(separator = ", ") { names[it] ?: it.toString() }
+}
+
+private fun formatMinute(minuteOfDay: Int): String {
+    val hours = (minuteOfDay / 60).coerceIn(0, 23)
+    val minutes = (minuteOfDay % 60).coerceIn(0, 59)
+    val suffix = if (hours >= 12) "PM" else "AM"
+    val displayHour = when {
+        hours == 0 -> 12
+        hours > 12 -> hours - 12
+        else -> hours
+    }
+    return "%02d:%02d %s".format(displayHour, minutes, suffix)
 }

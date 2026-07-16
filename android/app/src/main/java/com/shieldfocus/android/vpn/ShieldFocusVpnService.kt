@@ -71,7 +71,6 @@ class ShieldFocusVpnService : VpnService() {
     private fun runTunnel() {
         val store = ProtectionStore(applicationContext)
         val settings = store.loadSettings()
-        val blockedDomains = store.loadEffectiveBlockedDomains()
         val allowedDomains = store.loadAllowedDomains()
         val dnsServers = collectDnsServers().ifEmpty {
             listOf(
@@ -123,15 +122,18 @@ class ShieldFocusVpnService : VpnService() {
                         continue
                     }
 
-                    val packet = packetBuffer.copyOf(length)
-                    val query = DnsPacketCodec.parse(packet) ?: continue
-                    if (query.hostname.isBlank()) {
-                        continue
-                    }
+                val packet = packetBuffer.copyOf(length)
+                val query = DnsPacketCodec.parse(packet) ?: continue
+                if (query.hostname.isBlank()) {
+                    continue
+                }
 
-                    val decision = DomainPolicy.decide(
-                        hostname = query.hostname,
-                        blockedDomains = blockedDomains,
+                val activeScheduleIds = store.loadActiveScheduleIds()
+                val blockedDomains = store.loadEffectiveBlockedDomains(activeScheduleIds)
+
+                val decision = DomainPolicy.decide(
+                    hostname = query.hostname,
+                    blockedDomains = blockedDomains,
                         allowedDomains = allowedDomains,
                         strictMode = settings.strictMode
                     )

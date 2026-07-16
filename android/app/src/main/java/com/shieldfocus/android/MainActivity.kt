@@ -19,6 +19,7 @@ import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import com.shieldfocus.android.data.ProtectionStore
 import com.shieldfocus.android.model.BlockingCategory
+import com.shieldfocus.android.model.BlockingSchedule
 import com.shieldfocus.android.model.ProtectionSettings
 import com.shieldfocus.android.ui.ShieldFocusApp
 import com.shieldfocus.android.ui.theme.ShieldFocusTheme
@@ -44,6 +45,9 @@ class MainActivity : ComponentActivity() {
             }
             var categories by remember {
                 mutableStateOf(protectionStore.loadCategories())
+            }
+            var schedules by remember {
+                mutableStateOf(protectionStore.loadSchedules())
             }
             val decisionLogs by produceState(
                 initialValue = protectionStore.loadDecisionHistory()
@@ -116,6 +120,11 @@ class MainActivity : ComponentActivity() {
                 protectionStore.saveCategories(nextCategories)
             }
 
+            fun updateSchedules(nextSchedules: List<BlockingSchedule>) {
+                schedules = nextSchedules
+                protectionStore.saveSchedules(nextSchedules)
+            }
+
             ShieldFocusTheme {
                 ShieldFocusApp(
                     protectionEnabled = settings.enabled,
@@ -126,6 +135,7 @@ class MainActivity : ComponentActivity() {
                     blockedDomains = blockedDomains,
                     allowedDomains = allowedDomains,
                     categories = categories,
+                    schedules = schedules,
                     decisionLogs = decisionLogs,
                     onProtectionToggle = { enabled ->
                         if (enabled) {
@@ -169,6 +179,15 @@ class MainActivity : ComponentActivity() {
                     },
                     onRemoveDomainFromCategory = { categoryId, domain ->
                         updateCategories(protectionStore.removeDomainFromCategory(categoryId, domain))
+                    },
+                    onAssignScheduleToCategory = { categoryId, scheduleName ->
+                        updateCategories(protectionStore.assignScheduleToCategory(categoryId, scheduleName))
+                    },
+                    onAddSchedule = { name ->
+                        updateSchedules(protectionStore.addSchedule(name))
+                    },
+                    onRemoveSchedule = { scheduleId ->
+                        updateSchedules(protectionStore.removeSchedule(scheduleId))
                     },
                     onClearDecisionLogs = {
                         protectionStore.clearDecisionHistory()
