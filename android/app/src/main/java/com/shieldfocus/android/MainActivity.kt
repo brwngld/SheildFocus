@@ -1,8 +1,11 @@
 package com.shieldfocus.android
 
+import android.Manifest
 import android.app.Activity
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.VpnService
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -41,24 +44,42 @@ class MainActivity : ComponentActivity() {
                 contract = ActivityResultContracts.StartActivityForResult()
             ) { result ->
                 if (result.resultCode == Activity.RESULT_OK) {
-                    settings = settings.copy(enabled = true)
-                    protectionStore.saveSettings(settings)
-                    startVpnService()
+                    startVpnFlow()
                 } else {
                     settings = settings.copy(enabled = false)
                     protectionStore.saveSettings(settings)
                 }
             }
 
-            fun requestVpnPermissionOrStart() {
+            val notificationPermissionLauncher = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.RequestPermission()
+            ) { isGranted ->
+                if (isGranted) {
+                    startVpnFlow()
+                }
+            }
+
+            fun startVpnFlow() {
                 val prepareIntent = VpnService.prepare(this@MainActivity)
                 if (prepareIntent != null) {
                     vpnPermissionLauncher.launch(prepareIntent)
-                } else {
-                    settings = settings.copy(enabled = true)
-                    protectionStore.saveSettings(settings)
-                    startVpnService()
+                    return
                 }
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    if (ContextCompat.checkSelfPermission(
+                            this@MainActivity,
+                            Manifest.permission.POST_NOTIFICATIONS
+                        ) != PackageManager.PERMISSION_GRANTED
+                    ) {
+                        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        return
+                    }
+                }
+
+                settings = settings.copy(enabled = true)
+                protectionStore.saveSettings(settings)
+                startVpnService()
             }
 
             fun stopProtection() {
@@ -91,7 +112,7 @@ class MainActivity : ComponentActivity() {
                     allowedDomains = allowedDomains,
                     onProtectionToggle = { enabled ->
                         if (enabled) {
-                            requestVpnPermissionOrStart()
+                            startVpnFlow()
                         } else {
                             stopProtection()
                         }
@@ -100,7 +121,7 @@ class MainActivity : ComponentActivity() {
                         updateSettings(settings.copy(strictMode = enabled))
                     },
                     onRequestVpnSetup = {
-                        requestVpnPermissionOrStart()
+                        startVpnFlow()
                     },
                     onAddBlockedDomain = { domain ->
                         updateBlockedDomains(protectionStore.addBlockedDomain(domain))
