@@ -60,12 +60,21 @@ function performRedirect(target) {
   goBackOrGoogle();
 }
 
+function isPrivateContext() {
+  return Boolean(
+    globalThis.browser?.extension?.inIncognitoContext ??
+    globalThis.chrome?.extension?.inIncognitoContext ??
+    false
+  );
+}
+
 function render() {
   const { hostname, reason, delay, target } = readQuery();
   const hostnameText = document.getElementById("hostnameText");
   const reasonText = document.getElementById("reasonText");
   const reasonValue = document.getElementById("reasonValue");
   const redirectLabel = document.getElementById("redirectLabel");
+  const modeNotice = document.getElementById("modeNotice");
   const countdownValue = document.getElementById("countdownValue");
   const countdownCopy = document.getElementById("countdownCopy");
   const countdownRing = document.getElementById("countdownRing");
@@ -92,6 +101,16 @@ function render() {
 
   if (redirectLabel) {
     redirectLabel.textContent = target === "google" ? "Google" : "Previous site";
+  }
+
+  if (modeNotice) {
+    if (isPrivateContext()) {
+      modeNotice.hidden = false;
+      modeNotice.textContent = "Private window mode is active. ShieldFocus redirect pages are available here.";
+    } else {
+      modeNotice.hidden = true;
+      modeNotice.textContent = "";
+    }
   }
 
   if (primaryAction) {

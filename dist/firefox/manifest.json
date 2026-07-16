@@ -7,7 +7,9 @@
     "gecko": {
       "id": "shieldfocus@local",
       "data_collection_permissions": {
-        "required": ["none"]
+        "required": [
+          "none"
+        ]
       }
     }
   },

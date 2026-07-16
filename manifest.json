@@ -3,6 +3,7 @@
   "name": "ShieldFocus",
   "version": "0.1.0",
   "description": "A local-first Chrome blocker with strict, privacy-preserving defaults.",
+  "incognito": "split",
   "browser_specific_settings": {
     "gecko": {
       "id": "shieldfocus@local",

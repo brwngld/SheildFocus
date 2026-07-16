@@ -1,4 +1,4 @@
-import { cp, mkdir, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const root = path.resolve(process.cwd());
@@ -25,6 +25,11 @@ async function main() {
     const target = path.join(outDir, entry);
     await cp(source, target, { recursive: true });
   }
+
+  const manifestPath = path.join(outDir, "manifest.json");
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  manifest.incognito = "split";
+  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
 
   await writeFile(
     path.join(outDir, "README.txt"),

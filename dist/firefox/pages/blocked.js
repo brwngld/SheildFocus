@@ -8,10 +8,22 @@ function readQuery() {
   const params = new URLSearchParams(window.location.search);
   const delay = Number.parseInt(params.get("delay") ?? "", 10);
   const target = params.get("target") || "previous";
+  let hostname = params.get("hostname") || "";
+  const referrer = document.referrer ? (() => {
+    try {
+      return new URL(document.referrer);
+    } catch {
+      return null;
+    }
+  })() : null;
+
+  if (!hostname && referrer?.hostname) {
+    hostname = referrer.hostname;
+  }
 
   return {
-    hostname: params.get("hostname") || "Unknown",
-    reason: params.get("reason") || "Unknown",
+    hostname: hostname || "Unknown",
+    reason: params.get("reason") || "Blocked by ShieldFocus",
     delay: Number.isFinite(delay) ? Math.min(60, Math.max(0, delay)) : 5,
     target: target === "google" ? "google" : "previous"
   };

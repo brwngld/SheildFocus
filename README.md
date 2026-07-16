@@ -57,6 +57,7 @@ ShieldFocus uses one shared Chromium-compatible package for:
 - Opera desktop
 
 The same `manifest.json` and source tree are used for all three browsers.
+The Chromium build uses split incognito mode so extension pages can load in private windows.
 
 To stage a clean Chromium package:
 
@@ -69,6 +70,7 @@ That command creates `dist/chromium/`, which you can load unpacked in Chrome, Ed
 ## Firefox Support
 
 Firefox desktop uses the same source code with a Firefox-ready manifest that includes the required `browser_specific_settings.gecko.id`.
+The Firefox package strips the Chromium split-incognito setting so the browser can handle its own private-window behavior.
 
 To stage a Firefox package:
 
