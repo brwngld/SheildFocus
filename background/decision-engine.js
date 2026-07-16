@@ -95,6 +95,20 @@ export class DecisionEngine {
       };
     }
 
+    const domainResult = this.domainClassifier.classify(page);
+
+    if (domainResult.hardAllow) {
+      return {
+        action: DECISION_ACTIONS.allow,
+        category: "trusted",
+        confidence: 0.99,
+        score: domainResult.score,
+        hostname,
+        reason: "allowlist",
+        reasons: domainResult.reasons
+      };
+    }
+
     if (!this.isWithinActiveSchedule()) {
       return {
         action: DECISION_ACTIONS.allow,
@@ -131,20 +145,6 @@ export class DecisionEngine {
         hostname,
         reason: `category:${categoryMatch.name}`,
         reasons: [`category:${categoryMatch.name}`]
-      };
-    }
-
-    const domainResult = this.domainClassifier.classify(page);
-
-    if (domainResult.hardAllow) {
-      return {
-        action: DECISION_ACTIONS.allow,
-        category: "trusted",
-        confidence: 0.99,
-        score: domainResult.score,
-        hostname,
-        reason: "allowlist",
-        reasons: domainResult.reasons
       };
     }
 

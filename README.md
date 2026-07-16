@@ -32,3 +32,39 @@ ShieldFocus is a local-first Chrome MV3 extension for domain blocking and privac
 5. Scan only page metadata when the page is not already blocked.
 6. Combine rule-based scores into a final allow/block decision.
 
+## Current Status
+
+- MV3 extension skeleton is in place.
+- Local storage, logging, and the blocking engine are working.
+- Allowlist, blocklist, categories, schedules, and custom rules are supported.
+- Popup and options page are functional.
+- Broadening test coverage is underway.
+
+## Load In Chrome
+
+1. Open `chrome://extensions`.
+2. Turn on `Developer mode`.
+3. Click `Load unpacked`.
+4. Select the `ShieldFocus` folder.
+5. Open the extension popup or the options page to manage rules.
+
+## Verify
+
+- Run the included smoke tests from the repo root.
+- Re-check the options page after any storage or decision-engine change.
+- Confirm blocked pages still redirect correctly in Chrome.
+
+## Next Steps
+
+- Finish UI polish later.
+- Keep adding scenario coverage around precedence and persistence.
+- Add local AI only after the rule-based flow stays stable.
+
+## Packaging Checklist
+
+- Confirm the manifest parses cleanly.
+- Confirm the placeholder icons are present in `assets/`.
+- Load the extension from `chrome://extensions` in Developer mode.
+- Open the popup and the options page once after loading.
+- Run the smoke and integration tests from the repo root.
+- Keep release notes focused on blocking behavior, privacy, and local storage.
