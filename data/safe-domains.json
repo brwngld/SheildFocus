@@ -1,3 +1,7 @@
 {
-  "domains": []
+  "domains": [
+    "wikipedia.org",
+    "khanacademy.org",
+    "nih.gov"
+  ]
 }

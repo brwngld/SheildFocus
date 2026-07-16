@@ -53,6 +53,20 @@ h2 {
   color: var(--muted);
 }
 
+.status {
+  min-height: 1.2em;
+  margin: 12px 0 0;
+  color: var(--muted);
+}
+
+.status[data-tone="success"] {
+  color: #1f6f43;
+}
+
+.status[data-tone="error"] {
+  color: #a11d1d;
+}
+
 .grid {
   display: grid;
   gap: 16px;
@@ -176,10 +190,15 @@ button,
   gap: 10px;
 }
 
+button:disabled,
+.import input:disabled + span {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 button:focus-visible,
 input:focus-visible,
 .import span:focus-visible {
   outline: 3px solid #8ab4f8;
   outline-offset: 2px;
 }
-

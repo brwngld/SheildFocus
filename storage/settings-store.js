@@ -109,23 +109,29 @@ export async function exportSettings() {
     exportedAt: new Date().toISOString(),
     settings: state.settings,
     blockedDomains: state.blockedDomains,
-    allowedDomains: state.allowedDomains
+    allowedDomains: state.allowedDomains,
+    logs: state.logs
   };
 }
 
 export async function importSettings(payload) {
+  if (!payload || typeof payload !== "object") {
+    throw new Error("Invalid import payload.");
+  }
+
   const nextState = {
     settings: normalizeSettings(payload?.settings),
     blockedDomains: dedupeDomains(payload?.blockedDomains ?? []),
-    allowedDomains: dedupeDomains(payload?.allowedDomains ?? [])
+    allowedDomains: dedupeDomains(payload?.allowedDomains ?? []),
+    logs: Array.isArray(payload?.logs) ? payload.logs : []
   };
 
   await chrome.storage.local.set({
     [STORAGE_KEYS.settings]: nextState.settings,
     [STORAGE_KEYS.blockedDomains]: nextState.blockedDomains,
-    [STORAGE_KEYS.allowedDomains]: nextState.allowedDomains
+    [STORAGE_KEYS.allowedDomains]: nextState.allowedDomains,
+    [STORAGE_KEYS.logs]: nextState.logs
   });
 
   return nextState;
 }
-

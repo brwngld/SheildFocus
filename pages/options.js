@@ -3,11 +3,53 @@ import { getBlockedTodayCount, getRecentDecisions } from "../storage/decision-lo
 import { compactText } from "../shared/domain-utils.js";
 
 const elements = {};
+let busy = false;
+
+function setStatus(message, tone = "") {
+  if (!elements.statusMessage) {
+    return;
+  }
+
+  elements.statusMessage.textContent = message;
+  elements.statusMessage.dataset.tone = tone;
+}
+
+function setBusy(nextBusy) {
+  busy = nextBusy;
+  const disabled = Boolean(nextBusy);
+
+  [
+    elements.enabledToggle,
+    elements.strictToggle,
+    elements.aiToggle,
+    elements.blockedInput,
+    elements.allowedInput,
+    elements.exportButton,
+    elements.importInput
+  ].forEach((element) => {
+    if (element) {
+      element.disabled = disabled;
+    }
+  });
+
+  if (elements.blockedForm) {
+    elements.blockedForm.querySelectorAll("button").forEach((button) => {
+      button.disabled = disabled;
+    });
+  }
+
+  if (elements.allowedForm) {
+    elements.allowedForm.querySelectorAll("button").forEach((button) => {
+      button.disabled = disabled;
+    });
+  }
+}
 
 function cacheElements() {
   elements.enabledToggle = document.getElementById("enabledToggle");
   elements.strictToggle = document.getElementById("strictToggle");
   elements.aiToggle = document.getElementById("aiToggle");
+  elements.statusMessage = document.getElementById("statusMessage");
   elements.blockedTodayCount = document.getElementById("blockedTodayCount");
   elements.blockedForm = document.getElementById("blockedForm");
   elements.blockedInput = document.getElementById("blockedInput");
@@ -114,30 +156,57 @@ function bindForm(form, input, listKey) {
       return;
     }
 
-    await addDomain(listKey, value);
-    input.value = "";
-    await refresh();
+    try {
+      setBusy(true);
+      await addDomain(listKey, value);
+      input.value = "";
+      setStatus(`Added ${value}.`, "success");
+      await refresh();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not save domain.", "error");
+    } finally {
+      setBusy(false);
+    }
   });
 }
 
 async function exportToFile() {
-  const payload = await exportSettings();
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = "shieldfocus-settings.json";
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
+  try {
+    setBusy(true);
+    const payload = await exportSettings();
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "shieldfocus-settings.json";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    setStatus("Settings exported.", "success");
+  } catch (error) {
+    setStatus(error instanceof Error ? error.message : "Export failed.", "error");
+  } finally {
+    setBusy(false);
+  }
 }
 
 async function importFromFile(file) {
-  const text = await file.text();
-  const payload = JSON.parse(text);
-  await importSettings(payload);
-  await refresh();
+  try {
+    setBusy(true);
+    const text = await file.text();
+    const payload = JSON.parse(text);
+    const imported = await importSettings(payload);
+    await refresh();
+    setStatus(
+      `Imported ${imported.blockedDomains.length} blocked and ${imported.allowedDomains.length} allowed domains.`,
+      "success"
+    );
+  } catch (error) {
+    setStatus(error instanceof Error ? error.message : "Import failed.", "error");
+  } finally {
+    setBusy(false);
+  }
 }
 
 function bindControls() {
@@ -176,5 +245,5 @@ function bindControls() {
 
 cacheElements();
 bindControls();
+setStatus("Ready.");
 void refresh();
-
