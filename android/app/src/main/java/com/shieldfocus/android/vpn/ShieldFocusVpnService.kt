@@ -71,7 +71,7 @@ class ShieldFocusVpnService : VpnService() {
     private fun runTunnel() {
         val store = ProtectionStore(applicationContext)
         val settings = store.loadSettings()
-        val blockedDomains = store.loadBlockedDomains()
+        val blockedDomains = store.loadEffectiveBlockedDomains()
         val allowedDomains = store.loadAllowedDomains()
         val dnsServers = collectDnsServers().ifEmpty {
             listOf(

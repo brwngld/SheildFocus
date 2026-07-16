@@ -1,15 +1,18 @@
 package com.shieldfocus.android.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.background
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -28,8 +31,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.shieldfocus.android.model.BlockingCategory
 import com.shieldfocus.android.model.Decision
 import java.text.DateFormat
 import java.util.Date
@@ -44,6 +49,7 @@ fun ShieldFocusApp(
     loggingEnabled: Boolean,
     blockedDomains: List<String>,
     allowedDomains: List<String>,
+    categories: List<BlockingCategory>,
     decisionLogs: List<Decision>,
     onProtectionToggle: (Boolean) -> Unit,
     onStrictModeToggle: (Boolean) -> Unit,
@@ -54,10 +60,15 @@ fun ShieldFocusApp(
     onRemoveBlockedDomain: (String) -> Unit,
     onAddAllowedDomain: (String) -> Unit,
     onRemoveAllowedDomain: (String) -> Unit,
+    onAddCategory: (String) -> Unit,
+    onRemoveCategory: (String) -> Unit,
+    onAddDomainToCategory: (String, String) -> Unit,
+    onRemoveDomainFromCategory: (String, String) -> Unit,
     onClearDecisionLogs: () -> Unit
 ) {
     var blockedInput by remember { mutableStateOf("") }
     var allowedInput by remember { mutableStateOf("") }
+    var categoryInput by remember { mutableStateOf("") }
 
     Scaffold(
         topBar = {
@@ -194,6 +205,22 @@ fun ShieldFocusApp(
                     }
                 }
             }
+
+            CategorySection(
+                categories = categories,
+                inputValue = categoryInput,
+                onInputChange = { categoryInput = it },
+                onSubmit = {
+                    val value = categoryInput.trim()
+                    if (value.isNotEmpty()) {
+                        onAddCategory(value)
+                        categoryInput = ""
+                    }
+                },
+                onRemoveCategory = onRemoveCategory,
+                onAddDomain = onAddDomainToCategory,
+                onRemoveDomain = onRemoveDomainFromCategory
+            )
 
             DomainSection(
                 title = "Block list",
@@ -366,6 +393,161 @@ private fun DomainSection(
                         ) {
                             Text(domain, fontWeight = FontWeight.Medium)
                             TextButton(onClick = { onRemove(domain) }) {
+                                Text("Remove")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CategorySection(
+    categories: List<BlockingCategory>,
+    inputValue: String,
+    onInputChange: (String) -> Unit,
+    onSubmit: () -> Unit,
+    onRemoveCategory: (String) -> Unit,
+    onAddDomain: (String, String) -> Unit,
+    onRemoveDomain: (String, String) -> Unit
+) {
+    Card(
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text("Categories", style = MaterialTheme.typography.titleMedium)
+                    Text("Group blocked domains by topic", style = MaterialTheme.typography.bodySmall)
+                }
+                Button(
+                    onClick = onSubmit,
+                    contentPadding = PaddingValues(horizontal = 18.dp, vertical = 12.dp)
+                ) {
+                    Text("New Category")
+                }
+            }
+
+            OutlinedTextField(
+                value = inputValue,
+                onValueChange = onInputChange,
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                shape = RoundedCornerShape(18.dp),
+                placeholder = { Text("e.g. Social Media") }
+            )
+
+            if (categories.isEmpty()) {
+                Text("No categories yet", style = MaterialTheme.typography.bodyMedium)
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    categories.forEach { category ->
+                        CategoryCard(
+                            category = category,
+                            onRemoveCategory = onRemoveCategory,
+                            onAddDomain = onAddDomain,
+                            onRemoveDomain = onRemoveDomain
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CategoryCard(
+    category: BlockingCategory,
+    onRemoveCategory: (String) -> Unit,
+    onAddDomain: (String, String) -> Unit,
+    onRemoveDomain: (String, String) -> Unit
+) {
+    var domainInput by remember(category.id) { mutableStateOf("") }
+    val accent = Color(android.graphics.Color.parseColor(category.colorHex))
+
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(12.dp)
+                            .background(accent, RoundedCornerShape(999.dp))
+                    )
+                    Spacer(modifier = Modifier.size(10.dp))
+                    Column {
+                        Text(category.name, fontWeight = FontWeight.SemiBold)
+                        Text("${category.domains.size} sites", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                TextButton(onClick = { onRemoveCategory(category.id) }) {
+                    Text("Remove")
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = domainInput,
+                    onValueChange = { domainInput = it },
+                    modifier = Modifier.fillMaxWidth(0.74f),
+                    singleLine = true,
+                    shape = RoundedCornerShape(18.dp),
+                    placeholder = { Text("Add a domain") }
+                )
+                Button(
+                    onClick = {
+                        val value = domainInput.trim()
+                        if (value.isNotEmpty()) {
+                            onAddDomain(category.id, value)
+                            domainInput = ""
+                        }
+                    },
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)
+                ) {
+                    Text("Add")
+                }
+            }
+
+            if (category.domains.isEmpty()) {
+                Text("No sites yet", style = MaterialTheme.typography.bodySmall)
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    category.domains.forEach { domain ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(domain, style = MaterialTheme.typography.bodyMedium)
+                            TextButton(onClick = { onRemoveDomain(category.id, domain) }) {
                                 Text("Remove")
                             }
                         }

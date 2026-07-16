@@ -18,6 +18,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import com.shieldfocus.android.data.ProtectionStore
+import com.shieldfocus.android.model.BlockingCategory
 import com.shieldfocus.android.model.ProtectionSettings
 import com.shieldfocus.android.ui.ShieldFocusApp
 import com.shieldfocus.android.ui.theme.ShieldFocusTheme
@@ -40,6 +41,9 @@ class MainActivity : ComponentActivity() {
             }
             var allowedDomains by remember {
                 mutableStateOf(protectionStore.loadAllowedDomains().sorted())
+            }
+            var categories by remember {
+                mutableStateOf(protectionStore.loadCategories())
             }
             val decisionLogs by produceState(
                 initialValue = protectionStore.loadDecisionHistory()
@@ -107,6 +111,11 @@ class MainActivity : ComponentActivity() {
                 protectionStore.saveAllowedDomains(nextDomains)
             }
 
+            fun updateCategories(nextCategories: List<BlockingCategory>) {
+                categories = nextCategories
+                protectionStore.saveCategories(nextCategories)
+            }
+
             ShieldFocusTheme {
                 ShieldFocusApp(
                     protectionEnabled = settings.enabled,
@@ -116,6 +125,7 @@ class MainActivity : ComponentActivity() {
                     loggingEnabled = settings.loggingEnabled,
                     blockedDomains = blockedDomains,
                     allowedDomains = allowedDomains,
+                    categories = categories,
                     decisionLogs = decisionLogs,
                     onProtectionToggle = { enabled ->
                         if (enabled) {
@@ -147,6 +157,18 @@ class MainActivity : ComponentActivity() {
                     },
                     onRemoveAllowedDomain = { domain ->
                         updateAllowedDomains(protectionStore.removeAllowedDomain(domain))
+                    },
+                    onAddCategory = { name ->
+                        updateCategories(protectionStore.addCategory(name))
+                    },
+                    onRemoveCategory = { categoryId ->
+                        updateCategories(protectionStore.removeCategory(categoryId))
+                    },
+                    onAddDomainToCategory = { categoryId, domain ->
+                        updateCategories(protectionStore.addDomainToCategory(categoryId, domain))
+                    },
+                    onRemoveDomainFromCategory = { categoryId, domain ->
+                        updateCategories(protectionStore.removeDomainFromCategory(categoryId, domain))
                     },
                     onClearDecisionLogs = {
                         protectionStore.clearDecisionHistory()

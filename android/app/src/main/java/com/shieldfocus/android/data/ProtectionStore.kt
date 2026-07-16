@@ -2,7 +2,6 @@ package com.shieldfocus.android.data
 
 import android.content.Context
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
-import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
@@ -10,12 +9,14 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStoreFile
 import com.shieldfocus.android.domain.DomainNormalizer
+import com.shieldfocus.android.model.BlockingCategory
 import com.shieldfocus.android.model.Decision
 import com.shieldfocus.android.model.ProtectionSettings
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.runBlocking
+import java.util.UUID
 
 private const val DATA_STORE_NAME = "shieldfocus_prefs"
 private const val MAX_LOG_ENTRIES = 50
@@ -27,7 +28,17 @@ private val KEY_AUTO_START_ON_BOOT = booleanPreferencesKey("auto_start_on_boot")
 private val KEY_LOGGING_ENABLED = booleanPreferencesKey("logging_enabled")
 private val KEY_BLOCKED_DOMAINS = stringSetPreferencesKey("blocked_domains")
 private val KEY_ALLOWED_DOMAINS = stringSetPreferencesKey("allowed_domains")
+private val KEY_CATEGORIES = stringPreferencesKey("blocking_categories")
 private val KEY_DECISION_LOGS = stringPreferencesKey("decision_logs")
+
+private val CATEGORY_COLORS = listOf(
+    "#6671FF",
+    "#EC4899",
+    "#10B981",
+    "#F59E0B",
+    "#8B5CF6",
+    "#14B8A6"
+)
 
 class ProtectionStore(context: Context) {
     private val dataStore = PreferenceDataStoreFactory.create(
@@ -59,18 +70,32 @@ class ProtectionStore(context: Context) {
         dataStore.data.first()[KEY_BLOCKED_DOMAINS].orEmpty()
     }
 
+    fun loadEffectiveBlockedDomains(): Set<String> = runBlocking {
+        val preferences = dataStore.data.first()
+        val manual = preferences[KEY_BLOCKED_DOMAINS].orEmpty()
+        val categoryDomains = decodeCategories(preferences[KEY_CATEGORIES].orEmpty())
+            .filter { it.enabled }
+            .flatMap { it.domains }
+            .toSet()
+        manual + categoryDomains
+    }
+
     fun loadAllowedDomains(): Set<String> = runBlocking {
         dataStore.data.first()[KEY_ALLOWED_DOMAINS].orEmpty()
     }
 
-    fun loadDecisionHistory(): List<Decision> = runBlocking {
-        decodeDecisionHistory(dataStore.data.first()[KEY_DECISION_LOGS].orEmpty())
+    fun loadCategories(): List<BlockingCategory> = runBlocking {
+        decodeCategories(dataStore.data.first()[KEY_CATEGORIES].orEmpty())
     }
 
     fun decisionHistoryFlow(): Flow<List<Decision>> {
         return dataStore.data.map { preferences ->
             decodeDecisionHistory(preferences[KEY_DECISION_LOGS].orEmpty())
         }
+    }
+
+    fun loadDecisionHistory(): List<Decision> = runBlocking {
+        decodeDecisionHistory(dataStore.data.first()[KEY_DECISION_LOGS].orEmpty())
     }
 
     fun saveBlockedDomains(domains: Set<String>) = runBlocking {
@@ -83,6 +108,59 @@ class ProtectionStore(context: Context) {
         dataStore.edit { preferences ->
             preferences[KEY_ALLOWED_DOMAINS] = domains.mapNotNull { normalizeDomain(it) }.toSet()
         }
+    }
+
+    fun saveCategories(categories: List<BlockingCategory>) = runBlocking {
+        dataStore.edit { preferences ->
+            preferences[KEY_CATEGORIES] = encodeCategories(categories)
+        }
+    }
+
+    fun addCategory(name: String): List<BlockingCategory> {
+        val next = loadCategories().toMutableList()
+        val normalizedName = name.trim()
+        if (normalizedName.isBlank()) return next
+
+        val category = BlockingCategory(
+            id = UUID.randomUUID().toString(),
+            name = normalizedName,
+            colorHex = CATEGORY_COLORS[next.size % CATEGORY_COLORS.size]
+        )
+        next.add(category)
+        saveCategories(next)
+        return next
+    }
+
+    fun removeCategory(categoryId: String): List<BlockingCategory> {
+        val next = loadCategories().filterNot { it.id == categoryId }
+        saveCategories(next)
+        return next
+    }
+
+    fun addDomainToCategory(categoryId: String, domain: String): List<BlockingCategory> {
+        val normalized = normalizeDomain(domain) ?: return loadCategories()
+        val next = loadCategories().map { category ->
+            if (category.id != categoryId) {
+                category
+            } else {
+                category.copy(domains = (category.domains + normalized).distinct())
+            }
+        }
+        saveCategories(next)
+        return next
+    }
+
+    fun removeDomainFromCategory(categoryId: String, domain: String): List<BlockingCategory> {
+        val normalized = normalizeDomain(domain) ?: return loadCategories()
+        val next = loadCategories().map { category ->
+            if (category.id != categoryId) {
+                category
+            } else {
+                category.copy(domains = category.domains.filterNot { it == normalized })
+            }
+        }
+        saveCategories(next)
+        return next
     }
 
     fun addBlockedDomain(domain: String): Set<String> {
@@ -132,6 +210,45 @@ class ProtectionStore(context: Context) {
         return normalized.takeIf { it.isNotBlank() }
     }
 
+    private fun encodeCategories(categories: List<BlockingCategory>): String {
+        return categories.joinToString(separator = "\n") { category ->
+            listOf(
+                escape(category.id),
+                escape(category.name),
+                escape(category.colorHex),
+                if (category.enabled) "1" else "0",
+                category.domains.joinToString(separator = ",") { escape(it) }
+            ).joinToString(separator = "|")
+        }
+    }
+
+    private fun decodeCategories(payload: String): List<BlockingCategory> {
+        if (payload.isBlank()) return emptyList()
+        return payload.lineSequence()
+            .filter { it.isNotBlank() }
+            .mapNotNull { line ->
+                val parts = splitEncoded(line, '|')
+                if (parts.size != 5) {
+                    return@mapNotNull null
+                }
+
+                val domains = if (parts[4].isBlank()) {
+                    emptyList()
+                } else {
+                    splitEncoded(parts[4], ',')
+                }
+
+                BlockingCategory(
+                    id = parts[0],
+                    name = parts[1],
+                    colorHex = parts[2],
+                    enabled = parts[3] == "1",
+                    domains = domains
+                )
+            }
+            .toList()
+    }
+
     private fun encodeDecisionHistory(history: List<Decision>): String {
         return history.joinToString(separator = "\n") { decision ->
             listOf(
@@ -148,7 +265,7 @@ class ProtectionStore(context: Context) {
         return payload.lineSequence()
             .filter { it.isNotBlank() }
             .mapNotNull { line ->
-                val parts = splitEncoded(line)
+                val parts = splitEncoded(line, '|')
                 if (parts.size != 4) {
                     return@mapNotNull null
                 }
@@ -156,20 +273,21 @@ class ProtectionStore(context: Context) {
                 val timestamp = parts[0].toLongOrNull() ?: return@mapNotNull null
                 val allow = parts[1] == "1"
                 Decision(
-                    domain = unescape(parts[2]),
+                    domain = parts[2],
                     allow = allow,
-                    reason = unescape(parts[3]),
+                    reason = parts[3],
                     timestampMillis = timestamp
                 )
             }
             .toList()
     }
 
-    private fun splitEncoded(line: String): List<String> {
+    private fun splitEncoded(input: String, delimiter: Char): List<String> {
         val parts = mutableListOf<String>()
         val current = StringBuilder()
         var escaping = false
-        line.forEach { char ->
+
+        input.forEach { char ->
             when {
                 escaping -> {
                     current.append(
@@ -179,19 +297,21 @@ class ProtectionStore(context: Context) {
                             't' -> '\t'
                             '\\' -> '\\'
                             '|' -> '|'
+                            ',' -> ','
                             else -> char
                         }
                     )
                     escaping = false
                 }
                 char == '\\' -> escaping = true
-                char == '|' -> {
+                char == delimiter -> {
                     parts += current.toString()
                     current.clear()
                 }
                 else -> current.append(char)
             }
         }
+
         parts += current.toString()
         return parts
     }
@@ -205,11 +325,10 @@ class ProtectionStore(context: Context) {
                     '\r' -> append("\\r")
                     '\t' -> append("\\t")
                     '|' -> append("\\|")
+                    ',' -> append("\\,")
                     else -> append(char)
                 }
             }
         }
     }
-
-    private fun unescape(value: String): String = value
 }
