@@ -30,6 +30,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.shieldfocus.android.model.Decision
+import java.text.DateFormat
+import java.util.Date
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -37,15 +40,21 @@ fun ShieldFocusApp(
     protectionEnabled: Boolean,
     strictMode: Boolean,
     redirectDelaySeconds: Int,
+    autoStartOnBoot: Boolean,
+    loggingEnabled: Boolean,
     blockedDomains: List<String>,
     allowedDomains: List<String>,
+    decisionLogs: List<Decision>,
     onProtectionToggle: (Boolean) -> Unit,
     onStrictModeToggle: (Boolean) -> Unit,
+    onAutoStartToggle: (Boolean) -> Unit,
+    onLoggingToggle: (Boolean) -> Unit,
     onRequestVpnSetup: () -> Unit,
     onAddBlockedDomain: (String) -> Unit,
     onRemoveBlockedDomain: (String) -> Unit,
     onAddAllowedDomain: (String) -> Unit,
-    onRemoveAllowedDomain: (String) -> Unit
+    onRemoveAllowedDomain: (String) -> Unit,
+    onClearDecisionLogs: () -> Unit
 ) {
     var blockedInput by remember { mutableStateOf("") }
     var allowedInput by remember { mutableStateOf("") }
@@ -142,6 +151,50 @@ fun ShieldFocusApp(
                 }
             }
 
+            Card(
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                )
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text("Startup & logging", style = MaterialTheme.typography.titleMedium)
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("Start on boot", fontWeight = FontWeight.Medium)
+                            Text(
+                                "Enable protection automatically after restart.",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                        Switch(checked = autoStartOnBoot, onCheckedChange = onAutoStartToggle)
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("Decision logging", fontWeight = FontWeight.Medium)
+                            Text(
+                                "Keep a local history of allow and block decisions.",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                        Switch(checked = loggingEnabled, onCheckedChange = onLoggingToggle)
+                    }
+                }
+            }
+
             DomainSection(
                 title = "Block list",
                 subtitle = "Domains blocked on-device",
@@ -177,6 +230,11 @@ fun ShieldFocusApp(
                 },
                 onRemove = onRemoveAllowedDomain
             )
+
+            DecisionLogSection(
+                logs = decisionLogs,
+                onClear = onClearDecisionLogs
+            )
         }
     }
 }
@@ -201,7 +259,7 @@ private fun StatusCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.weight(1f)) {
+                Column {
                     Text("Protection", style = MaterialTheme.typography.titleMedium)
                     Text(
                         if (enabled) "On" else "Off",
@@ -309,6 +367,78 @@ private fun DomainSection(
                             Text(domain, fontWeight = FontWeight.Medium)
                             TextButton(onClick = { onRemove(domain) }) {
                                 Text("Remove")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DecisionLogSection(
+    logs: List<Decision>,
+    onClear: () -> Unit
+) {
+    Card(
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text("Recent decisions", style = MaterialTheme.typography.titleMedium)
+                    Text("Latest local block and allow events", style = MaterialTheme.typography.bodySmall)
+                }
+                TextButton(onClick = onClear) {
+                    Text("Clear")
+                }
+            }
+
+            if (logs.isEmpty()) {
+                Text("No recent decisions yet", style = MaterialTheme.typography.bodyMedium)
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    logs.take(5).forEach { decision ->
+                        Card(
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant
+                            )
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        decision.domain,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        if (decision.allow) "Allowed" else "Blocked",
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                                Text(decision.reason, style = MaterialTheme.typography.bodySmall)
+                                Text(
+                                    DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(decision.timestampMillis)),
+                                    style = MaterialTheme.typography.bodySmall
+                                )
                             }
                         }
                     }

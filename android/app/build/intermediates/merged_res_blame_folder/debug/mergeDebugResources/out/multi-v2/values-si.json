@@ -1,7 +1,7 @@
 {
     "logs": [
         {
-            "outputFile": "com.shieldfocus.android.app-mergeDebugResources-54:/values-si/values-si.xml",
+            "outputFile": "com.shieldfocus.android.app-mergeDebugResources-57:/values-si/values-si.xml",
             "map": [
                 {
                     "source": "C:\\Users\\Bernard\\.gradle\\caches\\8.9\\transforms\\8863f40217a4432ad6db1f68f647a217\\transformed\\appcompat-1.6.1\\res\\values-si\\values-si.xml",

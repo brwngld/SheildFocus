@@ -13,6 +13,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
@@ -21,6 +22,7 @@ import com.shieldfocus.android.model.ProtectionSettings
 import com.shieldfocus.android.ui.ShieldFocusApp
 import com.shieldfocus.android.ui.theme.ShieldFocusTheme
 import com.shieldfocus.android.vpn.ShieldFocusVpnService
+import kotlinx.coroutines.flow.collect
 
 class MainActivity : ComponentActivity() {
     private lateinit var protectionStore: ProtectionStore
@@ -38,6 +40,11 @@ class MainActivity : ComponentActivity() {
             }
             var allowedDomains by remember {
                 mutableStateOf(protectionStore.loadAllowedDomains().sorted())
+            }
+            val decisionLogs by produceState(
+                initialValue = protectionStore.loadDecisionHistory()
+            ) {
+                protectionStore.decisionHistoryFlow().collect { value = it }
             }
             var startVpnFlow: (() -> Unit)? = null
 
@@ -105,8 +112,11 @@ class MainActivity : ComponentActivity() {
                     protectionEnabled = settings.enabled,
                     strictMode = settings.strictMode,
                     redirectDelaySeconds = settings.redirectDelaySeconds,
+                    autoStartOnBoot = settings.autoStartOnBoot,
+                    loggingEnabled = settings.loggingEnabled,
                     blockedDomains = blockedDomains,
                     allowedDomains = allowedDomains,
+                    decisionLogs = decisionLogs,
                     onProtectionToggle = { enabled ->
                         if (enabled) {
                             startVpnFlow?.invoke()
@@ -116,6 +126,12 @@ class MainActivity : ComponentActivity() {
                     },
                     onStrictModeToggle = { enabled ->
                         updateSettings(settings.copy(strictMode = enabled))
+                    },
+                    onAutoStartToggle = { enabled ->
+                        updateSettings(settings.copy(autoStartOnBoot = enabled))
+                    },
+                    onLoggingToggle = { enabled ->
+                        updateSettings(settings.copy(loggingEnabled = enabled))
                     },
                     onRequestVpnSetup = {
                         startVpnFlow?.invoke()
@@ -131,6 +147,9 @@ class MainActivity : ComponentActivity() {
                     },
                     onRemoveAllowedDomain = { domain ->
                         updateAllowedDomains(protectionStore.removeAllowedDomain(domain))
+                    },
+                    onClearDecisionLogs = {
+                        protectionStore.clearDecisionHistory()
                     }
                 )
             }

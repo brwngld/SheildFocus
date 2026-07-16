@@ -16,6 +16,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import com.shieldfocus.android.MainActivity
 import com.shieldfocus.android.data.ProtectionStore
+import com.shieldfocus.android.model.Decision
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.net.Inet4Address
@@ -134,6 +135,16 @@ class ShieldFocusVpnService : VpnService() {
                         allowedDomains = allowedDomains,
                         strictMode = settings.strictMode
                     )
+
+                    if (settings.loggingEnabled) {
+                        store.appendDecision(
+                            Decision(
+                                domain = query.hostname,
+                                allow = decision.allow,
+                                reason = decision.reason
+                            )
+                        )
+                    }
 
                     val dnsPayload = if (decision.allow) {
                         DnsForwarder.forward(query, this) ?: continue

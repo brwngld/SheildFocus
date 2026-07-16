@@ -1,7 +1,7 @@
 {
     "logs": [
         {
-            "outputFile": "com.shieldfocus.android.app-mergeDebugResources-54:/values-v23/values-v23.xml",
+            "outputFile": "com.shieldfocus.android.app-mergeDebugResources-57:/values-v23/values-v23.xml",
             "map": [
                 {
                     "source": "C:\\Users\\Bernard\\.gradle\\caches\\8.9\\transforms\\690bad9a37909d6f68f57b329b16fe42\\transformed\\cardview-1.0.0\\res\\values-v23\\values-v23.xml",

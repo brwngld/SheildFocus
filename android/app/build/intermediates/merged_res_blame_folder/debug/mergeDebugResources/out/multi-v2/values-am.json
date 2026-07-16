@@ -1,7 +1,7 @@
 {
     "logs": [
         {
-            "outputFile": "com.shieldfocus.android.app-mergeDebugResources-54:/values-am/values-am.xml",
+            "outputFile": "com.shieldfocus.android.app-mergeDebugResources-57:/values-am/values-am.xml",
             "map": [
                 {
                     "source": "C:\\Users\\Bernard\\.gradle\\caches\\8.9\\transforms\\bfd7c120961990ef3528b1a2cdecaded\\transformed\\core-1.13.1\\res\\values-am\\values-am.xml",

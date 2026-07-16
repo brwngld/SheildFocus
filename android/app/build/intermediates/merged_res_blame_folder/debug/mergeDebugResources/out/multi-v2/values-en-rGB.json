@@ -1,7 +1,7 @@
 {
     "logs": [
         {
-            "outputFile": "com.shieldfocus.android.app-mergeDebugResources-54:/values-en-rGB/values-en-rGB.xml",
+            "outputFile": "com.shieldfocus.android.app-mergeDebugResources-57:/values-en-rGB/values-en-rGB.xml",
             "map": [
                 {
                     "source": "C:\\Users\\Bernard\\.gradle\\caches\\8.9\\transforms\\a83081b9f7e26e3cb977306fe358930f\\transformed\\foundation-release\\res\\values-en-rGB\\values-en-rGB.xml",

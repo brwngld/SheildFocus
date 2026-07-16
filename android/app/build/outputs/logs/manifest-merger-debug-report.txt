@@ -1,9 +1,9 @@
 -- Merging decision tree log ---
 manifest
-ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:2:1-35:12
-INJECTED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:2:1-35:12
-INJECTED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:2:1-35:12
-INJECTED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:2:1-35:12
+ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:2:1-45:12
+INJECTED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:2:1-45:12
+INJECTED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:2:1-45:12
+INJECTED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:2:1-45:12
 MERGED from [com.google.android.material:material:1.12.0] C:\Users\Bernard\.gradle\caches\8.9\transforms\29285f1b2011ed1473032a48993b2645\transformed\material-1.12.0\AndroidManifest.xml:17:1-24:12
 MERGED from [androidx.constraintlayout:constraintlayout:2.0.1] C:\Users\Bernard\.gradle\caches\8.9\transforms\9099a7ed44890a47a1d42914cfc03a82\transformed\constraintlayout-2.0.1\AndroidManifest.xml:2:1-11:12
 MERGED from [androidx.appcompat:appcompat-resources:1.6.1] C:\Users\Bernard\.gradle\caches\8.9\transforms\f015edc7ae7fba20056ea16a76856981\transformed\appcompat-resources-1.6.1\AndroidManifest.xml:17:1-22:12
@@ -57,6 +57,9 @@ MERGED from [androidx.lifecycle:lifecycle-runtime-ktx:2.6.2] C:\Users\Bernard\.g
 MERGED from [androidx.lifecycle:lifecycle-runtime:2.6.2] C:\Users\Bernard\.gradle\caches\8.9\transforms\c04b53675aa7408343292ff408ccbcc5\transformed\lifecycle-runtime-2.6.2\AndroidManifest.xml:2:1-7:12
 MERGED from [androidx.lifecycle:lifecycle-viewmodel-savedstate:2.6.2] C:\Users\Bernard\.gradle\caches\8.9\transforms\02f1df893e39b81e98848263b90f21e0\transformed\lifecycle-viewmodel-savedstate-2.6.2\AndroidManifest.xml:17:1-22:12
 MERGED from [androidx.core:core-ktx:1.13.1] C:\Users\Bernard\.gradle\caches\8.9\transforms\c6690ef633c333507fbd3deaa481a878\transformed\core-ktx-1.13.1\AndroidManifest.xml:2:1-7:12
+MERGED from [androidx.datastore:datastore-core-android:1.1.1] C:\Users\Bernard\.gradle\caches\8.9\transforms\61c3ebfae8172ea3491c13dd3a096cfb\transformed\datastore-core-release\AndroidManifest.xml:2:1-7:12
+MERGED from [androidx.datastore:datastore-android:1.1.1] C:\Users\Bernard\.gradle\caches\8.9\transforms\7d24cd0144c3b466ee53c5f86f9521ff\transformed\datastore-release\AndroidManifest.xml:17:1-22:12
+MERGED from [androidx.datastore:datastore-preferences-android:1.1.1] C:\Users\Bernard\.gradle\caches\8.9\transforms\effdad4488094c629416f554f6e629e2\transformed\datastore-preferences-release\AndroidManifest.xml:17:1-22:12
 MERGED from [androidx.compose.runtime:runtime-saveable-android:1.6.8] C:\Users\Bernard\.gradle\caches\8.9\transforms\67a4611abbee9057fd0c8a507410daa3\transformed\runtime-saveable-release\AndroidManifest.xml:2:1-7:12
 MERGED from [androidx.compose.runtime:runtime-android:1.6.8] C:\Users\Bernard\.gradle\caches\8.9\transforms\1a5f50275557a18b9a3c98163058b2af\transformed\runtime-release\AndroidManifest.xml:2:1-7:12
 MERGED from [androidx.annotation:annotation-experimental:1.4.0] C:\Users\Bernard\.gradle\caches\8.9\transforms\f238852abfb14342ca57787c33e0564b\transformed\annotation-experimental-1.4.0\AndroidManifest.xml:2:1-7:12
@@ -99,9 +102,13 @@ uses-permission#android.permission.POST_NOTIFICATIONS
 ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:8:5-77
 	android:name
 		ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:8:22-74
+uses-permission#android.permission.RECEIVE_BOOT_COMPLETED
+ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:9:5-81
+	android:name
+		ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:9:22-78
 application
-ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:10:5-33:19
-INJECTED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:10:5-33:19
+ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:11:5-43:19
+INJECTED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:11:5-43:19
 MERGED from [com.google.android.material:material:1.12.0] C:\Users\Bernard\.gradle\caches\8.9\transforms\29285f1b2011ed1473032a48993b2645\transformed\material-1.12.0\AndroidManifest.xml:22:5-20
 MERGED from [com.google.android.material:material:1.12.0] C:\Users\Bernard\.gradle\caches\8.9\transforms\29285f1b2011ed1473032a48993b2645\transformed\material-1.12.0\AndroidManifest.xml:22:5-20
 MERGED from [androidx.constraintlayout:constraintlayout:2.0.1] C:\Users\Bernard\.gradle\caches\8.9\transforms\9099a7ed44890a47a1d42914cfc03a82\transformed\constraintlayout-2.0.1\AndroidManifest.xml:9:5-20
@@ -125,45 +132,59 @@ MERGED from [androidx.startup:startup-runtime:1.1.1] C:\Users\Bernard\.gradle\ca
 	android:appComponentFactory
 		ADDED from [androidx.core:core:1.13.1] C:\Users\Bernard\.gradle\caches\8.9\transforms\bfd7c120961990ef3528b1a2cdecaded\transformed\core-1.13.1\AndroidManifest.xml:28:18-86
 	android:supportsRtl
-		ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:13:9-35
+		ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:14:9-35
 	android:label
-		ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:12:9-41
+		ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:13:9-41
 	android:allowBackup
-		ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:11:9-35
+		ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:12:9-35
 	android:theme
-		ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:14:9-49
+		ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:15:9-49
 activity#com.shieldfocus.android.MainActivity
-ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:15:9-22:20
+ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:16:9-23:20
 	android:exported
-		ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:17:13-36
+		ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:18:13-36
 	android:name
-		ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:16:13-41
+		ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:17:13-41
 intent-filter#action:name:android.intent.action.MAIN+category:name:android.intent.category.LAUNCHER
-ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:18:13-21:29
+ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:19:13-22:29
 action#android.intent.action.MAIN
-ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:19:17-69
+ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:20:17-69
 	android:name
-		ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:19:25-66
+		ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:20:25-66
 category#android.intent.category.LAUNCHER
-ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:20:17-77
+ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:21:17-77
 	android:name
-		ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:20:27-74
+		ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:21:27-74
 service#com.shieldfocus.android.vpn.ShieldFocusVpnService
-ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:24:9-32:19
+ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:25:9-33:19
 	android:exported
-		ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:26:13-36
+		ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:27:13-36
 	android:permission
-		ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:28:13-69
+		ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:29:13-69
 	android:foregroundServiceType
-		ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:27:13-53
+		ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:28:13-53
 	android:name
-		ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:25:13-54
+		ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:26:13-54
 intent-filter#action:name:android.net.VpnService
-ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:29:13-31:29
+ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:30:13-32:29
 action#android.net.VpnService
-ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:30:17-65
+ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:31:17-65
 	android:name
-		ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:30:25-62
+		ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:31:25-62
+receiver#com.shieldfocus.android.startup.BootCompletedReceiver
+ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:35:9-42:20
+	android:enabled
+		ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:37:13-35
+	android:exported
+		ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:38:13-37
+	android:name
+		ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:36:13-58
+intent-filter#action:name:android.intent.action.BOOT_COMPLETED
+ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:39:13-41:29
+action#android.intent.action.BOOT_COMPLETED
+ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:40:17-79
+	android:name
+		ADDED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml:40:25-76
 uses-sdk
 INJECTED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml reason: use-sdk injection requested
 INJECTED from C:\Users\Bernard\Desktop\learning\SheildFocus\android\app\src\main\AndroidManifest.xml
@@ -274,6 +295,12 @@ MERGED from [androidx.lifecycle:lifecycle-viewmodel-savedstate:2.6.2] C:\Users\B
 MERGED from [androidx.lifecycle:lifecycle-viewmodel-savedstate:2.6.2] C:\Users\Bernard\.gradle\caches\8.9\transforms\02f1df893e39b81e98848263b90f21e0\transformed\lifecycle-viewmodel-savedstate-2.6.2\AndroidManifest.xml:20:5-44
 MERGED from [androidx.core:core-ktx:1.13.1] C:\Users\Bernard\.gradle\caches\8.9\transforms\c6690ef633c333507fbd3deaa481a878\transformed\core-ktx-1.13.1\AndroidManifest.xml:5:5-44
 MERGED from [androidx.core:core-ktx:1.13.1] C:\Users\Bernard\.gradle\caches\8.9\transforms\c6690ef633c333507fbd3deaa481a878\transformed\core-ktx-1.13.1\AndroidManifest.xml:5:5-44
+MERGED from [androidx.datastore:datastore-core-android:1.1.1] C:\Users\Bernard\.gradle\caches\8.9\transforms\61c3ebfae8172ea3491c13dd3a096cfb\transformed\datastore-core-release\AndroidManifest.xml:5:5-44
+MERGED from [androidx.datastore:datastore-core-android:1.1.1] C:\Users\Bernard\.gradle\caches\8.9\transforms\61c3ebfae8172ea3491c13dd3a096cfb\transformed\datastore-core-release\AndroidManifest.xml:5:5-44
+MERGED from [androidx.datastore:datastore-android:1.1.1] C:\Users\Bernard\.gradle\caches\8.9\transforms\7d24cd0144c3b466ee53c5f86f9521ff\transformed\datastore-release\AndroidManifest.xml:20:5-44
+MERGED from [androidx.datastore:datastore-android:1.1.1] C:\Users\Bernard\.gradle\caches\8.9\transforms\7d24cd0144c3b466ee53c5f86f9521ff\transformed\datastore-release\AndroidManifest.xml:20:5-44
+MERGED from [androidx.datastore:datastore-preferences-android:1.1.1] C:\Users\Bernard\.gradle\caches\8.9\transforms\effdad4488094c629416f554f6e629e2\transformed\datastore-preferences-release\AndroidManifest.xml:20:5-44
+MERGED from [androidx.datastore:datastore-preferences-android:1.1.1] C:\Users\Bernard\.gradle\caches\8.9\transforms\effdad4488094c629416f554f6e629e2\transformed\datastore-preferences-release\AndroidManifest.xml:20:5-44
 MERGED from [androidx.compose.runtime:runtime-saveable-android:1.6.8] C:\Users\Bernard\.gradle\caches\8.9\transforms\67a4611abbee9057fd0c8a507410daa3\transformed\runtime-saveable-release\AndroidManifest.xml:5:5-44
 MERGED from [androidx.compose.runtime:runtime-saveable-android:1.6.8] C:\Users\Bernard\.gradle\caches\8.9\transforms\67a4611abbee9057fd0c8a507410daa3\transformed\runtime-saveable-release\AndroidManifest.xml:5:5-44
 MERGED from [androidx.compose.runtime:runtime-android:1.6.8] C:\Users\Bernard\.gradle\caches\8.9\transforms\1a5f50275557a18b9a3c98163058b2af\transformed\runtime-release\AndroidManifest.xml:5:5-44
