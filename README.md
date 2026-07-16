@@ -107,6 +107,7 @@ Unsupported for now:
 - Add local AI only after the rule-based flow stays stable.
 - Finish Firefox-specific signing/publishing details next if we want store release support.
 - Keep Opera Mini and UC Browser marked as unsupported unless their browser models change.
+- Start the Android app track in [`android/README.md`](/C:/Users/Bernard/Desktop/learning/SheildFocus/android/README.md).
 
 ## Packaging Checklist
 

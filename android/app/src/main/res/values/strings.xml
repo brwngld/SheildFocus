@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">ShieldFocus</string>
+    <string name="home_title">Android</string>
+    <string name="home_subtitle">Device-wide local filtering</string>
+</resources>
