@@ -7,7 +7,6 @@ const elements = {};
 function cacheElements() {
   elements.openOptionsButton = document.getElementById("openOptionsButton");
   elements.modeBadge = document.getElementById("modeBadge");
-  elements.redirectBadge = document.getElementById("redirectBadge");
   elements.enabledToggle = document.getElementById("enabledToggle");
   elements.strictToggle = document.getElementById("strictToggle");
   elements.themeSelect = document.getElementById("themeSelect");
@@ -53,19 +52,17 @@ async function refresh() {
   elements.protectionStatus.textContent = state.settings.enabled ? "On" : "Off";
   applyTheme(state.settings.theme);
 
-  if (elements.redirectBadge) {
+  if (elements.modeBadge) {
     const redirectLabel = state.settings.redirectTarget === "google" ? "Google" : "Previous site";
     const delayLabel = state.settings.redirectDelaySeconds === 1 ? "1 second" : `${state.settings.redirectDelaySeconds} seconds`;
-    elements.redirectBadge.textContent = `Redirect: ${redirectLabel} after ${delayLabel}`;
-  }
+    const redirectText = `Redirect: ${redirectLabel} after ${delayLabel}`;
 
-  if (elements.modeBadge) {
     if (isPrivateContext()) {
       elements.modeBadge.hidden = false;
-      elements.modeBadge.textContent = "Private mode active";
+      elements.modeBadge.textContent = `Private mode active • ${redirectText}`;
     } else {
-      elements.modeBadge.hidden = true;
-      elements.modeBadge.textContent = "";
+      elements.modeBadge.hidden = false;
+      elements.modeBadge.textContent = redirectText;
     }
   }
 
