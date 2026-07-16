@@ -30,6 +30,12 @@ class MainActivity : ComponentActivity() {
             var settings by remember {
                 mutableStateOf(protectionStore.loadSettings())
             }
+            var blockedDomains by remember {
+                mutableStateOf(protectionStore.loadBlockedDomains().sorted())
+            }
+            var allowedDomains by remember {
+                mutableStateOf(protectionStore.loadAllowedDomains().sorted())
+            }
 
             val vpnPermissionLauncher = rememberLauncherForActivityResult(
                 contract = ActivityResultContracts.StartActivityForResult()
@@ -66,11 +72,23 @@ class MainActivity : ComponentActivity() {
                 protectionStore.saveSettings(nextSettings)
             }
 
+            fun updateBlockedDomains(nextDomains: Set<String>) {
+                blockedDomains = nextDomains.sorted()
+                protectionStore.saveBlockedDomains(nextDomains)
+            }
+
+            fun updateAllowedDomains(nextDomains: Set<String>) {
+                allowedDomains = nextDomains.sorted()
+                protectionStore.saveAllowedDomains(nextDomains)
+            }
+
             ShieldFocusTheme {
                 ShieldFocusApp(
                     protectionEnabled = settings.enabled,
                     strictMode = settings.strictMode,
                     redirectDelaySeconds = settings.redirectDelaySeconds,
+                    blockedDomains = blockedDomains,
+                    allowedDomains = allowedDomains,
                     onProtectionToggle = { enabled ->
                         if (enabled) {
                             requestVpnPermissionOrStart()
@@ -83,6 +101,18 @@ class MainActivity : ComponentActivity() {
                     },
                     onRequestVpnSetup = {
                         requestVpnPermissionOrStart()
+                    },
+                    onAddBlockedDomain = { domain ->
+                        updateBlockedDomains(protectionStore.addBlockedDomain(domain))
+                    },
+                    onRemoveBlockedDomain = { domain ->
+                        updateBlockedDomains(protectionStore.removeBlockedDomain(domain))
+                    },
+                    onAddAllowedDomain = { domain ->
+                        updateAllowedDomains(protectionStore.addAllowedDomain(domain))
+                    },
+                    onRemoveAllowedDomain = { domain ->
+                        updateAllowedDomains(protectionStore.removeAllowedDomain(domain))
                     }
                 )
             }

@@ -1,6 +1,7 @@
 package com.shieldfocus.android.data
 
 import android.content.Context
+import com.shieldfocus.android.domain.DomainNormalizer
 import com.shieldfocus.android.model.ProtectionSettings
 
 private const val PREFS_NAME = "shieldfocus_prefs"
@@ -34,10 +35,43 @@ class ProtectionStore(context: Context) {
     fun loadAllowedDomains(): Set<String> = preferences.getStringSet(KEY_ALLOWED_DOMAINS, emptySet())?.toSet().orEmpty()
 
     fun saveBlockedDomains(domains: Set<String>) {
-        preferences.edit().putStringSet(KEY_BLOCKED_DOMAINS, domains).apply()
+        preferences.edit().putStringSet(KEY_BLOCKED_DOMAINS, domains.mapNotNull { normalizeDomain(it) }.toSet()).apply()
     }
 
     fun saveAllowedDomains(domains: Set<String>) {
-        preferences.edit().putStringSet(KEY_ALLOWED_DOMAINS, domains).apply()
+        preferences.edit().putStringSet(KEY_ALLOWED_DOMAINS, domains.mapNotNull { normalizeDomain(it) }.toSet()).apply()
+    }
+
+    fun addBlockedDomain(domain: String): Set<String> {
+        val next = loadBlockedDomains().toMutableSet()
+        normalizeDomain(domain)?.let(next::add)
+        saveBlockedDomains(next)
+        return next
+    }
+
+    fun removeBlockedDomain(domain: String): Set<String> {
+        val normalized = normalizeDomain(domain)
+        val next = loadBlockedDomains().filterNot { it == normalized }.toSet()
+        saveBlockedDomains(next)
+        return next
+    }
+
+    fun addAllowedDomain(domain: String): Set<String> {
+        val next = loadAllowedDomains().toMutableSet()
+        normalizeDomain(domain)?.let(next::add)
+        saveAllowedDomains(next)
+        return next
+    }
+
+    fun removeAllowedDomain(domain: String): Set<String> {
+        val normalized = normalizeDomain(domain)
+        val next = loadAllowedDomains().filterNot { it == normalized }.toSet()
+        saveAllowedDomains(next)
+        return next
+    }
+
+    private fun normalizeDomain(value: String): String? {
+        val normalized = DomainNormalizer.normalize(value)
+        return normalized.takeIf { it.isNotBlank() }
     }
 }
