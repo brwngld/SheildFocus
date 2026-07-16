@@ -1,0 +1,185 @@
+:root {
+  color-scheme: light;
+  --bg: #f3f1ea;
+  --card: #ffffff;
+  --text: #1a1d1f;
+  --muted: #5b636b;
+  --border: #d7d2c7;
+  --accent: #1f2933;
+  --accent-text: #ffffff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: linear-gradient(180deg, #f8f6f0 0%, var(--bg) 100%);
+  color: var(--text);
+}
+
+.page {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 32px 20px 56px;
+}
+
+.hero {
+  margin-bottom: 24px;
+}
+
+.eyebrow {
+  margin: 0 0 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+h1,
+h2 {
+  margin: 0;
+}
+
+.subtitle {
+  margin: 10px 0 0;
+  color: var(--muted);
+}
+
+.grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 18px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.05);
+}
+
+.card h2 {
+  font-size: 1.05rem;
+  margin-bottom: 14px;
+}
+
+.toggle {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.toggle:last-of-type {
+  border-bottom: 0;
+}
+
+.metric {
+  margin: 16px 0 0;
+  color: var(--muted);
+}
+
+.entry-form {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.entry-form input[type="text"] {
+  flex: 1;
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  font: inherit;
+}
+
+button,
+.import span {
+  border: 0;
+  border-radius: 12px;
+  padding: 11px 14px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.import {
+  position: relative;
+  display: inline-block;
+}
+
+.import input[type="file"] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.list,
+.timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.list li,
+.timeline li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.list button {
+  padding: 8px 10px;
+  border-radius: 10px;
+}
+
+.list .label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timeline time {
+  color: var(--muted);
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.timeline .meta {
+  display: grid;
+  gap: 2px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+button:focus-visible,
+input:focus-visible,
+.import span:focus-visible {
+  outline: 3px solid #8ab4f8;
+  outline-offset: 2px;
+}
+
