@@ -8,6 +8,7 @@ import { getState } from "../storage/settings-store.js";
 
 const ruleManager = createRuleManager();
 let cachedCatalogs = null;
+const BLOCKED_PAGE_VIEW_MESSAGE = "SHIELD_FOCUS_BLOCKED_PAGE_VIEW";
 
 async function loadJsonResource(path) {
   try {
@@ -70,7 +71,10 @@ async function syncRulesFromStorage() {
     await ruleManager.syncBlockingRules({
       blockedDomains: activeSchedules ? blockedDomains : [],
       allowedDomains: state.allowedDomains,
-      defaultBlockedDomains: catalogs.defaultBlockedDomains
+      defaultBlockedDomains: catalogs.defaultBlockedDomains,
+      blockedPageUrl: chrome.runtime.getURL("pages/blocked.html"),
+      redirectDelaySeconds: state.settings.redirectDelaySeconds,
+      redirectTarget: state.settings.redirectTarget
     });
   } catch (error) {
     console.error("ShieldFocus failed to sync blocking rules", error);
@@ -119,6 +123,21 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type === BLOCKED_PAGE_VIEW_MESSAGE) {
+    (async () => {
+      await appendDecision({
+        hostname: message.hostname ?? "",
+        decision: "BLOCK",
+        reason: message.reason ?? "known-blocked-domain",
+        score: Number.isFinite(message.score) ? message.score : 100
+      });
+
+      sendResponse({ ok: true });
+    })();
+
+    return true;
+  }
+
   if (message?.type !== MESSAGE_TYPES.pageScan) {
     return false;
   }
@@ -151,7 +170,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         ...decision,
         blockPageUrl: buildBlockedPageUrl({
           hostname: decision.hostname,
-          reason: decision.reason
+          reason: decision.reason,
+          redirectDelaySeconds: state.settings.redirectDelaySeconds,
+          redirectTarget: state.settings.redirectTarget
         })
       });
       return;

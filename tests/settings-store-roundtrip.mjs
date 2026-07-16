@@ -43,7 +43,9 @@ const imported = await importSettings({
     enabled: true,
     strictMode: true,
     aiEnabled: false,
-    theme: "light"
+    theme: "light",
+    redirectDelaySeconds: 5,
+    redirectTarget: "google"
   },
   blockedDomains: [" Example.COM ", "www.MIXED.com"],
   blockedRules: [
@@ -88,6 +90,8 @@ assert.equal(exported.allowedDomains[0], "wikipedia.org");
 const stateAfter = await getState();
 assert.equal(stateAfter.blockedRules[0].scheduleId, "schedule-1");
 assert.equal(stateAfter.settings.theme, "light");
+assert.equal(stateAfter.settings.redirectDelaySeconds, 5);
+assert.equal(stateAfter.settings.redirectTarget, "google");
 
 await removeCategory("cat-1");
 await removeSchedule("schedule-1");

@@ -15,6 +15,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
   strictMode: true,
   aiEnabled: false,
   theme: "system",
+  redirectDelaySeconds: 5,
+  redirectTarget: "previous",
   logLimit: 200
 });
 

@@ -65,6 +65,8 @@ function cacheElements() {
   elements.strictToggle = document.getElementById("strictToggle");
   elements.aiToggle = document.getElementById("aiToggle");
   elements.themeSelect = document.getElementById("themeSelect");
+  elements.redirectDelaySelect = document.getElementById("redirectDelaySelect");
+  elements.redirectTargetSelect = document.getElementById("redirectTargetSelect");
   elements.navItems = Array.from(document.querySelectorAll("[data-view]"));
   elements.views = Array.from(document.querySelectorAll("[data-view-panel]"));
   elements.blockedForm = document.getElementById("blockedForm");
@@ -120,6 +122,8 @@ function setBusy(nextBusy) {
     elements.strictToggle,
     elements.aiToggle,
     elements.themeSelect,
+    elements.redirectDelaySelect,
+    elements.redirectTargetSelect,
     elements.blockedInput,
     elements.blockedCategorySelect,
     elements.blockedScheduleSelect,
@@ -738,6 +742,8 @@ async function refresh() {
   elements.strictToggle.checked = state.settings.strictMode;
   elements.aiToggle.checked = state.settings.aiEnabled;
   elements.themeSelect.value = state.settings.theme;
+  elements.redirectDelaySelect.value = String(state.settings.redirectDelaySeconds);
+  elements.redirectTargetSelect.value = state.settings.redirectTarget;
   applyTheme(state.settings.theme);
 
   renderSelectOptions(elements.blockedCategorySelect, [
@@ -896,6 +902,16 @@ function bindControls() {
 
   elements.themeSelect.addEventListener("change", async () => {
     await setSettings({ theme: elements.themeSelect.value });
+    await refresh();
+  });
+
+  elements.redirectDelaySelect.addEventListener("change", async () => {
+    await setSettings({ redirectDelaySeconds: Number(elements.redirectDelaySelect.value) });
+    await refresh();
+  });
+
+  elements.redirectTargetSelect.addEventListener("change", async () => {
+    await setSettings({ redirectTarget: elements.redirectTargetSelect.value });
     await refresh();
   });
 

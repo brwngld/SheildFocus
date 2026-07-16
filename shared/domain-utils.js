@@ -78,7 +78,12 @@ export function matchesDomainRule(hostname, ruleDomain) {
   );
 }
 
-export function buildBlockedPageUrl({ hostname = "", reason = "" } = {}) {
+export function buildBlockedPageUrl({
+  hostname = "",
+  reason = "",
+  redirectDelaySeconds = "",
+  redirectTarget = ""
+} = {}) {
   const params = new URLSearchParams();
 
   if (hostname) {
@@ -87,6 +92,14 @@ export function buildBlockedPageUrl({ hostname = "", reason = "" } = {}) {
 
   if (reason) {
     params.set("reason", reason);
+  }
+
+  if (redirectDelaySeconds !== "" && redirectDelaySeconds != null) {
+    params.set("delay", String(redirectDelaySeconds));
+  }
+
+  if (redirectTarget) {
+    params.set("target", redirectTarget);
   }
 
   const query = params.toString();

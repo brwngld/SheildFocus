@@ -15,7 +15,9 @@ const engine = createDecisionEngine({
   settings: {
     enabled: true,
     strictMode: true,
-    aiEnabled: false
+    aiEnabled: false,
+    redirectDelaySeconds: 10,
+    redirectTarget: "previous"
   },
   blockedDomains: ["example-adult.com"],
   allowedDomains: ["wikipedia.org"],
@@ -35,12 +37,14 @@ assert.ok(blockedDecision.reasons.includes("known-blocked-domain"));
 
 const blockedUrl = buildBlockedPageUrl({
   hostname: blockedDecision.hostname,
-  reason: blockedDecision.reason
+  reason: blockedDecision.reason,
+  redirectDelaySeconds: 10,
+  redirectTarget: "previous"
 });
 
 assert.equal(
   blockedUrl,
-  "chrome-extension://shieldfocus/pages/blocked.html?hostname=pornhub.com&reason=known-blocked-domain"
+  "chrome-extension://shieldfocus/pages/blocked.html?hostname=pornhub.com&reason=known-blocked-domain&delay=10&target=previous"
 );
 
 const allowedDecision = await engine.decide({

@@ -95,8 +95,21 @@ function clampLogLimit(value) {
   return Math.min(1000, Math.floor(parsed));
 }
 
+function clampRedirectDelay(value) {
+  const parsed = Number(value);
+
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_SETTINGS.redirectDelaySeconds;
+  }
+
+  return Math.min(60, Math.max(0, Math.floor(parsed)));
+}
+
 export function normalizeSettings(rawSettings = {}) {
   const theme = ["system", "dark", "light"].includes(rawSettings.theme) ? rawSettings.theme : DEFAULT_SETTINGS.theme;
+  const redirectTarget = ["previous", "google"].includes(rawSettings.redirectTarget)
+    ? rawSettings.redirectTarget
+    : DEFAULT_SETTINGS.redirectTarget;
 
   return {
     ...DEFAULT_SETTINGS,
@@ -105,6 +118,8 @@ export function normalizeSettings(rawSettings = {}) {
     strictMode: rawSettings.strictMode !== false,
     aiEnabled: rawSettings.aiEnabled === true,
     theme,
+    redirectDelaySeconds: clampRedirectDelay(rawSettings.redirectDelaySeconds),
+    redirectTarget,
     logLimit: clampLogLimit(rawSettings.logLimit)
   };
 }
