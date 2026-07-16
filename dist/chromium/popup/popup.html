@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ShieldFocus</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body class="popup-shell">
+    <main class="popup">
+      <header class="popup-header">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">S</div>
+          <div>
+            <p class="brand-name">ShieldFocus</p>
+            <p class="brand-subtitle">Site blocker</p>
+          </div>
+        </div>
+        <button id="openOptionsButton" class="ghost-button" type="button">Dashboard</button>
+      </header>
+
+      <section class="status-card">
+        <div>
+          <p class="label">Protection</p>
+          <strong id="protectionStatus">On</strong>
+        </div>
+        <label class="switch">
+          <input id="enabledToggle" type="checkbox" />
+          <span aria-hidden="true"></span>
+        </label>
+      </section>
+
+      <section class="stats-grid">
+        <article class="stat-card">
+          <p>Blocked today</p>
+          <strong id="blockedTodayCount">0</strong>
+        </article>
+        <article class="stat-card">
+          <p>Active rules</p>
+          <strong id="activeRulesCount">0</strong>
+        </article>
+      </section>
+
+      <section class="mini-panel">
+        <label class="row" for="strictToggle">
+          <span>Strict mode</span>
+          <input id="strictToggle" type="checkbox" />
+        </label>
+        <label class="row" for="themeSelect">
+          <span>Theme</span>
+          <select id="themeSelect">
+            <option value="system">System</option>
+            <option value="dark">Dark</option>
+            <option value="light">Light</option>
+          </select>
+        </label>
+      </section>
+
+      <p class="status" id="statusMessage" aria-live="polite"></p>
+    </main>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

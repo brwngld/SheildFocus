@@ -35,8 +35,8 @@ assert.equal(capturedUpdate.addRules.length, 2);
 assert.equal(capturedUpdate.addRules[0].action.type, "allow");
 assert.equal(capturedUpdate.addRules[1].action.type, "redirect");
 assert.equal(
-  capturedUpdate.addRules[1].action.redirect.url,
-  "chrome-extension://shieldfocus/pages/blocked.html?hostname=example-adult.com&reason=known-blocked-domain&delay=5&target=previous"
+  capturedUpdate.addRules[1].action.redirect.extensionPath,
+  "/pages/blocked.html"
 );
 
 console.log("rule-manager-redirect: ok");

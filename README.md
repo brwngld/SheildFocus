@@ -1,6 +1,6 @@
 # ShieldFocus
 
-ShieldFocus is a local-first Chrome MV3 extension for domain blocking and privacy-preserving page classification.
+ShieldFocus is a local-first Chromium MV3 extension for domain blocking and privacy-preserving page classification.
 
 ## Architecture
 
@@ -48,6 +48,50 @@ ShieldFocus is a local-first Chrome MV3 extension for domain blocking and privac
 4. Select the `ShieldFocus` folder.
 5. Open the extension popup or the options page to manage rules.
 
+## Chromium Family Support
+
+ShieldFocus uses one shared Chromium-compatible package for:
+
+- Google Chrome
+- Microsoft Edge
+- Opera desktop
+
+The same `manifest.json` and source tree are used for all three browsers.
+
+To stage a clean Chromium package:
+
+```bash
+node scripts/package-chromium.mjs
+```
+
+That command creates `dist/chromium/`, which you can load unpacked in Chrome, Edge, or Opera desktop.
+
+## Firefox Support
+
+Firefox desktop uses the same source code with a Firefox-ready manifest that includes the required `browser_specific_settings.gecko.id`.
+
+To stage a Firefox package:
+
+```bash
+node scripts/package-firefox.mjs
+```
+
+That command creates `dist/firefox/`.
+
+## Browser Support Notes
+
+Supported:
+
+- Chrome
+- Edge
+- Opera desktop
+- Firefox desktop
+
+Unsupported for now:
+
+- Opera Mini
+- UC Browser
+
 ## Verify
 
 - Run the included smoke tests from the repo root.
@@ -59,6 +103,8 @@ ShieldFocus is a local-first Chrome MV3 extension for domain blocking and privac
 - Finish UI polish later.
 - Keep adding scenario coverage around precedence and persistence.
 - Add local AI only after the rule-based flow stays stable.
+- Finish Firefox-specific signing/publishing details next if we want store release support.
+- Keep Opera Mini and UC Browser marked as unsupported unless their browser models change.
 
 ## Packaging Checklist
 

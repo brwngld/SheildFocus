@@ -1,0 +1,10 @@
+{
+  "name": "shieldfocus",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "package:chromium": "node scripts/package-chromium.mjs",
+    "package:firefox": "node scripts/package-firefox.mjs"
+  }
+}
