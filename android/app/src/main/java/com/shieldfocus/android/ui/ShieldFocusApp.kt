@@ -32,8 +32,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.AnnotatedString
 import com.shieldfocus.android.model.BlockingCategory
 import com.shieldfocus.android.model.BlockingSchedule
 import com.shieldfocus.android.model.Decision
@@ -69,12 +72,17 @@ fun ShieldFocusApp(
     onAssignScheduleToCategory: (String, String) -> Unit,
     onAddSchedule: (String) -> Unit,
     onRemoveSchedule: (String) -> Unit,
+    onExportBackup: () -> String,
+    onImportBackup: (String) -> Boolean,
     onClearDecisionLogs: () -> Unit
 ) {
     var blockedInput by remember { mutableStateOf("") }
     var allowedInput by remember { mutableStateOf("") }
     var categoryInput by remember { mutableStateOf("") }
     var scheduleInput by remember { mutableStateOf("") }
+    var backupInput by remember { mutableStateOf(TextFieldValue("")) }
+    var backupMessage by remember { mutableStateOf("") }
+    val clipboardManager = LocalClipboardManager.current
 
     Scaffold(
         topBar = {
@@ -242,6 +250,25 @@ fun ShieldFocusApp(
                     }
                 },
                 onRemoveSchedule = onRemoveSchedule
+            )
+
+            BackupSection(
+                backupInput = backupInput,
+                backupMessage = backupMessage,
+                onBackupInputChange = { backupInput = it },
+                onExport = {
+                    clipboardManager.setText(AnnotatedString(onExportBackup()))
+                    backupMessage = "Backup copied to clipboard."
+                },
+                onImport = {
+                    val imported = onImportBackup(backupInput.text)
+                    backupMessage = if (imported) {
+                        backupInput = TextFieldValue("")
+                        "Backup imported successfully."
+                    } else {
+                        "Backup import failed."
+                    }
+                }
             )
 
             DomainSection(
@@ -698,6 +725,66 @@ private fun ScheduleSection(
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BackupSection(
+    backupInput: TextFieldValue,
+    backupMessage: String,
+    onBackupInputChange: (TextFieldValue) -> Unit,
+    onExport: () -> Unit,
+    onImport: () -> Unit
+) {
+    Card(
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text("Backup & import", style = MaterialTheme.typography.titleMedium)
+                    Text("Copy or restore a local ShieldFocus snapshot", style = MaterialTheme.typography.bodySmall)
+                }
+                Button(
+                    onClick = onExport,
+                    contentPadding = PaddingValues(horizontal = 18.dp, vertical = 12.dp)
+                ) {
+                    Text("Export")
+                }
+            }
+
+            OutlinedTextField(
+                value = backupInput,
+                onValueChange = onBackupInputChange,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(18.dp),
+                minLines = 5,
+                placeholder = { Text("Paste backup JSON here") }
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(onClick = onImport) {
+                    Text("Import Backup")
+                }
+                if (backupMessage.isNotBlank()) {
+                    Text(backupMessage, style = MaterialTheme.typography.bodySmall)
                 }
             }
         }

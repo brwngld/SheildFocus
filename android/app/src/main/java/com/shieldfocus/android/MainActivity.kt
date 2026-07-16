@@ -125,6 +125,14 @@ class MainActivity : ComponentActivity() {
                 protectionStore.saveSchedules(nextSchedules)
             }
 
+            fun refreshStateFromStore() {
+                settings = protectionStore.loadSettings()
+                blockedDomains = protectionStore.loadBlockedDomains().sorted()
+                allowedDomains = protectionStore.loadAllowedDomains().sorted()
+                categories = protectionStore.loadCategories()
+                schedules = protectionStore.loadSchedules()
+            }
+
             ShieldFocusTheme {
                 ShieldFocusApp(
                     protectionEnabled = settings.enabled,
@@ -188,6 +196,16 @@ class MainActivity : ComponentActivity() {
                     },
                     onRemoveSchedule = { scheduleId ->
                         updateSchedules(protectionStore.removeSchedule(scheduleId))
+                    },
+                    onExportBackup = {
+                        protectionStore.exportBackup()
+                    },
+                    onImportBackup = { payload ->
+                        val imported = protectionStore.importBackup(payload)
+                        if (imported) {
+                            refreshStateFromStore()
+                        }
+                        imported
                     },
                     onClearDecisionLogs = {
                         protectionStore.clearDecisionHistory()

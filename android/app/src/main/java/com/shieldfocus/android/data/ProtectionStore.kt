@@ -17,6 +17,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.runBlocking
+import org.json.JSONArray
+import org.json.JSONObject
 import java.util.UUID
 
 private const val DATA_STORE_NAME = "shieldfocus_prefs"
@@ -263,6 +265,91 @@ class ProtectionStore(context: Context) {
         }
     }
 
+    fun exportBackup(): String = runBlocking {
+        val preferences = dataStore.data.first()
+        val backup = JSONObject()
+            .put("version", 1)
+            .put("settings", JSONObject().apply {
+                val settings = loadSettings()
+                put("enabled", settings.enabled)
+                put("strictMode", settings.strictMode)
+                put("redirectDelaySeconds", settings.redirectDelaySeconds)
+                put("autoStartOnBoot", settings.autoStartOnBoot)
+                put("loggingEnabled", settings.loggingEnabled)
+            })
+            .put("blockedDomains", JSONArray(loadBlockedDomains().sorted()))
+            .put("allowedDomains", JSONArray(loadAllowedDomains().sorted()))
+            .put("categories", JSONArray().apply {
+                decodeCategories(preferences[KEY_CATEGORIES].orEmpty()).forEach { category ->
+                    put(JSONObject().apply {
+                        put("id", category.id)
+                        put("name", category.name)
+                        put("colorHex", category.colorHex)
+                        put("scheduleId", category.scheduleId)
+                        put("enabled", category.enabled)
+                        put("domains", JSONArray(category.domains))
+                    })
+                }
+            })
+            .put("schedules", JSONArray().apply {
+                decodeSchedules(preferences[KEY_SCHEDULES].orEmpty()).forEach { schedule ->
+                    put(JSONObject().apply {
+                        put("id", schedule.id)
+                        put("name", schedule.name)
+                        put("enabled", schedule.enabled)
+                        put("startMinuteOfDay", schedule.startMinuteOfDay)
+                        put("endMinuteOfDay", schedule.endMinuteOfDay)
+                        put("activeDays", JSONArray(schedule.activeDays.sorted()))
+                    })
+                }
+            })
+            .put("decisionLogs", JSONArray().apply {
+                decodeDecisionHistory(preferences[KEY_DECISION_LOGS].orEmpty()).forEach { decision ->
+                    put(JSONObject().apply {
+                        put("domain", decision.domain)
+                        put("allow", decision.allow)
+                        put("reason", decision.reason)
+                        put("timestampMillis", decision.timestampMillis)
+                    })
+                }
+            })
+
+        backup.toString(2)
+    }
+
+    fun importBackup(payload: String): Boolean = runBlocking {
+        runCatching {
+            val root = JSONObject(payload)
+            val settingsObject = root.optJSONObject("settings") ?: JSONObject()
+            val settings = ProtectionSettings(
+                enabled = settingsObject.optBoolean("enabled", true),
+                strictMode = settingsObject.optBoolean("strictMode", true),
+                redirectDelaySeconds = settingsObject.optInt("redirectDelaySeconds", 5),
+                autoStartOnBoot = settingsObject.optBoolean("autoStartOnBoot", false),
+                loggingEnabled = settingsObject.optBoolean("loggingEnabled", true)
+            )
+
+            val blockedDomains = readJsonStringSet(root.optJSONArray("blockedDomains"))
+            val allowedDomains = readJsonStringSet(root.optJSONArray("allowedDomains"))
+            val categories = readCategoriesFromJson(root.optJSONArray("categories"))
+            val schedules = readSchedulesFromJson(root.optJSONArray("schedules"))
+            val decisions = readDecisionsFromJson(root.optJSONArray("decisionLogs"))
+
+            saveSettings(settings)
+            saveBlockedDomains(blockedDomains)
+            saveAllowedDomains(allowedDomains)
+            saveCategories(categories)
+            saveSchedules(schedules)
+            dataStore.edit { preferences ->
+                if (decisions.isEmpty()) {
+                    preferences.remove(KEY_DECISION_LOGS)
+                } else {
+                    preferences[KEY_DECISION_LOGS] = encodeDecisionHistory(decisions.take(MAX_LOG_ENTRIES))
+                }
+            }
+        }.isSuccess
+    }
+
     private fun normalizeDomain(value: String): String? {
         val normalized = DomainNormalizer.normalize(value)
         return normalized.takeIf { it.isNotBlank() }
@@ -436,6 +523,88 @@ class ProtectionStore(context: Context) {
                     ',' -> append("\\,")
                     else -> append(char)
                 }
+            }
+        }
+    }
+
+    private fun readJsonStringSet(array: JSONArray?): Set<String> {
+        if (array == null) return emptySet()
+        return buildSet {
+            for (index in 0 until array.length()) {
+                val value = array.optString(index).takeIf { it.isNotBlank() } ?: continue
+                normalizeDomain(value)?.let(::add)
+            }
+        }
+    }
+
+    private fun readCategoriesFromJson(array: JSONArray?): List<BlockingCategory> {
+        if (array == null) return emptyList()
+        return buildList {
+            for (index in 0 until array.length()) {
+                val item = array.optJSONObject(index) ?: continue
+                val domains = buildList {
+                    val domainArray = item.optJSONArray("domains")
+                    if (domainArray != null) {
+                        for (d in 0 until domainArray.length()) {
+                            val domain = domainArray.optString(d).takeIf { it.isNotBlank() } ?: continue
+                            normalizeDomain(domain)?.let(::add)
+                        }
+                    }
+                }
+                add(
+                    BlockingCategory(
+                        id = item.optString("id", UUID.randomUUID().toString()),
+                        name = item.optString("name", "Category"),
+                        colorHex = item.optString("colorHex", CATEGORY_COLORS.first()),
+                        scheduleId = item.optString("scheduleId", ""),
+                        enabled = item.optBoolean("enabled", true),
+                        domains = domains
+                    )
+                )
+            }
+        }
+    }
+
+    private fun readSchedulesFromJson(array: JSONArray?): List<BlockingSchedule> {
+        if (array == null) return emptyList()
+        return buildList {
+            for (index in 0 until array.length()) {
+                val item = array.optJSONObject(index) ?: continue
+                val activeDays = buildSet {
+                    val daysArray = item.optJSONArray("activeDays")
+                    if (daysArray != null) {
+                        for (d in 0 until daysArray.length()) {
+                            daysArray.optInt(d).let(::add)
+                        }
+                    }
+                }
+                add(
+                    BlockingSchedule(
+                        id = item.optString("id", UUID.randomUUID().toString()),
+                        name = item.optString("name", "Schedule"),
+                        enabled = item.optBoolean("enabled", true),
+                        startMinuteOfDay = item.optInt("startMinuteOfDay", 9 * 60),
+                        endMinuteOfDay = item.optInt("endMinuteOfDay", 17 * 60),
+                        activeDays = activeDays.ifEmpty { DEFAULT_SCHEDULE_DAYS }
+                    )
+                )
+            }
+        }
+    }
+
+    private fun readDecisionsFromJson(array: JSONArray?): List<Decision> {
+        if (array == null) return emptyList()
+        return buildList {
+            for (index in 0 until array.length()) {
+                val item = array.optJSONObject(index) ?: continue
+                add(
+                    Decision(
+                        domain = item.optString("domain", ""),
+                        allow = item.optBoolean("allow", true),
+                        reason = item.optString("reason", ""),
+                        timestampMillis = item.optLong("timestampMillis", System.currentTimeMillis())
+                    )
+                )
             }
         }
     }
