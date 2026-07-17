@@ -1847,17 +1847,6 @@ private fun AddRuleSheet(
         modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Box(
-            modifier = Modifier.fillMaxWidth(),
-            contentAlignment = Alignment.Center
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(width = 46.dp, height = 4.dp)
-                    .background(MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(999.dp))
-            )
-        }
-
         Text("Add Domain Rule", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
         Text(
             "Enter a domain to block or allow across all browsers.",
