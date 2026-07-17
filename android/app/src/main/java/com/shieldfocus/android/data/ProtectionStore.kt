@@ -164,6 +164,31 @@ class ProtectionStore(context: Context) {
         }
     }
 
+    fun updateSchedule(
+        scheduleId: String,
+        name: String,
+        activeDays: Set<Int>,
+        startMinuteOfDay: Int,
+        endMinuteOfDay: Int,
+        enabled: Boolean
+    ): List<BlockingSchedule> {
+        val next = loadSchedules().map { schedule ->
+            if (schedule.id == scheduleId) {
+                schedule.copy(
+                    name = name.trim().ifBlank { schedule.name },
+                    activeDays = if (activeDays.isEmpty()) schedule.activeDays else activeDays,
+                    startMinuteOfDay = startMinuteOfDay.coerceIn(0, 23 * 60 + 59),
+                    endMinuteOfDay = endMinuteOfDay.coerceIn(0, 23 * 60 + 59),
+                    enabled = enabled
+                )
+            } else {
+                schedule
+            }
+        }
+        saveSchedules(next)
+        return next
+    }
+
     fun addCategory(name: String): List<BlockingCategory> {
         val next = loadCategories().toMutableList()
         val normalizedName = name.trim()

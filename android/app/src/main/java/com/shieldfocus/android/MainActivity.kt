@@ -197,6 +197,18 @@ class MainActivity : ComponentActivity() {
                     onRemoveSchedule = { scheduleId ->
                         updateSchedules(protectionStore.removeSchedule(scheduleId))
                     },
+                    onUpdateSchedule = { scheduleId, name, activeDays, startMinuteOfDay, endMinuteOfDay, enabled ->
+                        updateSchedules(
+                            protectionStore.updateSchedule(
+                                scheduleId = scheduleId,
+                                name = name,
+                                activeDays = activeDays,
+                                startMinuteOfDay = startMinuteOfDay,
+                                endMinuteOfDay = endMinuteOfDay,
+                                enabled = enabled
+                            )
+                        )
+                    },
                     onExportBackup = {
                         protectionStore.exportBackup()
                     },

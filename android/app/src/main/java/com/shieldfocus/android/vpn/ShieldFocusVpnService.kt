@@ -22,9 +22,11 @@ import java.io.FileOutputStream
 import java.net.Inet4Address
 import java.net.InetAddress
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 class ShieldFocusVpnService : VpnService() {
     private val running = AtomicBoolean(false)
+    private val tunnelGeneration = AtomicInteger(0)
     private var tunnel: ParcelFileDescriptor? = null
     private var worker: Thread? = null
 
@@ -47,28 +49,45 @@ class ShieldFocusVpnService : VpnService() {
         super.onDestroy()
     }
 
+    @Synchronized
     private fun startTunnel() {
         if (!running.compareAndSet(false, true)) {
             return
         }
 
-        createNotificationChannel()
-        ServiceCompat.startForeground(
-            this,
-            NOTIFICATION_ID,
-            buildNotification(),
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-        )
+        val generation = tunnelGeneration.incrementAndGet()
+
+        try {
+            createNotificationChannel()
+            ServiceCompat.startForeground(
+                this,
+                NOTIFICATION_ID,
+                buildNotification(),
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            )
+        } catch (error: RuntimeException) {
+            Log.e(TAG, "Failed to start VPN foreground service", error)
+            running.set(false)
+            tunnelGeneration.incrementAndGet()
+            stopSelf()
+            return
+        }
 
         worker = Thread {
-            runTunnel()
+            try {
+                runTunnel(generation)
+            } catch (error: Exception) {
+                Log.e(TAG, "VPN worker failed", error)
+            } finally {
+                finishTunnel(generation)
+            }
         }.also { thread ->
             thread.name = "ShieldFocusVpn"
             thread.start()
         }
     }
 
-    private fun runTunnel() {
+    private fun runTunnel(generation: Int) {
         val store = ProtectionStore(applicationContext)
         val settings = store.loadSettings()
         val allowedDomains = store.loadAllowedDomains()
@@ -98,19 +117,19 @@ class ShieldFocusVpnService : VpnService() {
         }
 
         if (descriptor == null) {
-            running.set(false)
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
             return
         }
 
-        tunnel = descriptor
+        if (!attachTunnel(generation, descriptor)) {
+            descriptor.close()
+            return
+        }
 
         FileInputStream(descriptor.fileDescriptor).use { input ->
             FileOutputStream(descriptor.fileDescriptor).use { output ->
                 val packetBuffer = ByteArray(32767)
 
-                while (running.get()) {
+                while (running.get() && tunnelGeneration.get() == generation) {
                     val length = try {
                         input.read(packetBuffer)
                     } catch (error: Exception) {
@@ -167,13 +186,40 @@ class ShieldFocusVpnService : VpnService() {
             }
         }
 
-        stopTunnel()
     }
 
+    @Synchronized
+    private fun attachTunnel(generation: Int, descriptor: ParcelFileDescriptor): Boolean {
+        if (!running.get() || tunnelGeneration.get() != generation) {
+            return false
+        }
+        tunnel = descriptor
+        return true
+    }
+
+    @Synchronized
+    private fun finishTunnel(generation: Int) {
+        if (tunnelGeneration.get() != generation) {
+            return
+        }
+
+        running.set(false)
+        tunnel = null
+        worker = null
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
+    @Synchronized
     private fun stopTunnel() {
+        tunnelGeneration.incrementAndGet()
         if (!running.compareAndSet(true, false)) {
-            tunnel?.close()
+            try {
+                tunnel?.close()
+            } catch (_: Exception) {
+            }
             tunnel = null
+            worker = null
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             return

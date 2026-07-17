@@ -9,3 +9,35 @@ Thumbs.db
 # Codex / local scratch
 .codex/
 *.log
+
+# JavaScript dependencies and packaged browser extensions
+node_modules/
+dist/
+coverage/
+
+# Android / Gradle generated files
+.gradle/
+.gradle-home/
+**/build/
+local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Android release artifacts and signing secrets
+*.apk
+*.aab
+*.ap_
+*.dex
+*.jks
+*.keystore
+key.properties
+
+# JVM / Kotlin compiler output
+*.class
+*.hprof
+
+# Local environment and secret files
+.env
+.env.*
+!.env.example

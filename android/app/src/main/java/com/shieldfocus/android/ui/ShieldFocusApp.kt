@@ -11,19 +11,29 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -35,13 +45,32 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Block
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.outlined.FlashOn
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.CheckCircleOutline
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.ShowChart
+import androidx.compose.material.icons.outlined.Shield
+import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.BarChart
+import androidx.compose.material.icons.outlined.Code
+import androidx.compose.material.icons.outlined.DoNotDisturbAlt
+import androidx.compose.material.icons.outlined.Rule
+import androidx.compose.material.icons.outlined.ViewList
 import com.shieldfocus.android.model.BlockingCategory
 import com.shieldfocus.android.model.BlockingSchedule
 import com.shieldfocus.android.model.Decision
 import java.text.DateFormat
 import java.util.Date
+import java.util.Calendar
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -72,6 +101,7 @@ fun ShieldFocusApp(
     onAssignScheduleToCategory: (String, String) -> Unit,
     onAddSchedule: (String) -> Unit,
     onRemoveSchedule: (String) -> Unit,
+    onUpdateSchedule: (String, String, Set<Int>, Int, Int, Boolean) -> Unit,
     onExportBackup: () -> String,
     onImportBackup: (String) -> Boolean,
     onClearDecisionLogs: () -> Unit
@@ -82,237 +112,1712 @@ fun ShieldFocusApp(
     var scheduleInput by remember { mutableStateOf("") }
     var backupInput by remember { mutableStateOf(TextFieldValue("")) }
     var backupMessage by remember { mutableStateOf("") }
+    var currentTab by remember { mutableStateOf(AppTab.Home) }
     val clipboardManager = LocalClipboardManager.current
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text("ShieldFocus", fontWeight = FontWeight.SemiBold)
-                        Text(
-                            text = "Device-wide local filtering",
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
-                }
+        containerColor = Color(0xFFF3F4F6),
+        bottomBar = {
+            BottomNavigationBar(
+                selectedTab = currentTab,
+                onTabSelected = { currentTab = it }
             )
         }
     ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .background(Color(0xFFF3F4F6))
                 .padding(padding)
-                .padding(16.dp),
+                .padding(horizontal = 16.dp, vertical = 16.dp)
+                .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            StatusCard(
-                enabled = protectionEnabled,
-                onToggle = onProtectionToggle
-            )
+            when (currentTab) {
+                AppTab.Home -> {
+                    HomeTabContent(
+                        protectionEnabled = protectionEnabled,
+                        blockedDomains = blockedDomains,
+                        allowedDomains = allowedDomains,
+                        categories = categories,
+                        schedules = schedules,
+                        decisionLogs = decisionLogs,
+                        onProtectionToggle = onProtectionToggle,
+                        onNavigateTab = { currentTab = it }
+                    )
+                }
 
-            MetricsCard(
-                title = "Coverage",
-                primary = "Browsers",
-                secondary = "Chrome, Edge, Opera, Firefox",
-                caption = "Blocks domains across the device with a local VPN filter."
-            )
+                AppTab.Rules -> {
+                    RulesTabContent(
+                        categories = categories,
+                        schedules = schedules,
+                        categoryInput = categoryInput,
+                        onCategoryInputChange = { categoryInput = it },
+                        onCreateCategory = {
+                            val value = categoryInput.trim()
+                            if (value.isNotEmpty()) {
+                                onAddCategory(value)
+                                categoryInput = ""
+                            }
+                        },
+                        onRemoveCategory = onRemoveCategory,
+                        onAddDomainToCategory = onAddDomainToCategory,
+                        onRemoveDomainFromCategory = onRemoveDomainFromCategory,
+                        onAssignScheduleToCategory = onAssignScheduleToCategory,
+                        scheduleInput = scheduleInput,
+                        onScheduleInputChange = { scheduleInput = it },
+                        onCreateSchedule = {
+                            val value = scheduleInput.trim()
+                            if (value.isNotEmpty()) {
+                                onAddSchedule(value)
+                                scheduleInput = ""
+                            }
+                        },
+                        onRemoveSchedule = onRemoveSchedule,
+                        onUpdateSchedule = onUpdateSchedule,
+                        blockedDomains = blockedDomains,
+                        blockedInput = blockedInput,
+                        onBlockedInputChange = { blockedInput = it },
+                        onCreateBlockedDomain = {
+                            val value = blockedInput.trim()
+                            if (value.isNotEmpty()) {
+                                onAddBlockedDomain(value)
+                                blockedInput = ""
+                            }
+                        },
+                        onRemoveBlockedDomain = onRemoveBlockedDomain,
+                        allowedDomains = allowedDomains,
+                        allowedInput = allowedInput,
+                        onAllowedInputChange = { allowedInput = it },
+                        onCreateAllowedDomain = {
+                            val value = allowedInput.trim()
+                            if (value.isNotEmpty()) {
+                                onAddAllowedDomain(value)
+                                allowedInput = ""
+                            }
+                        },
+                        onRemoveAllowedDomain = onRemoveAllowedDomain,
+                        onAddBlockedDomain = onAddBlockedDomain,
+                        onAddAllowedDomain = onAddAllowedDomain
+                    )
+                }
 
-            MetricsCard(
-                title = "Rules",
-                primary = "Shared policy",
-                secondary = "Blocklist, allowlist, categories, schedules",
-                caption = "The Android app shares the same rule concepts as the desktop extension."
-            )
+                AppTab.Activity -> {
+                    DecisionLogSection(
+                        logs = decisionLogs,
+                        onClear = onClearDecisionLogs
+                    )
+                }
 
-            Card(
-                shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                AppTab.Settings -> {
+                    SettingsTabContent(
+                        protectionEnabled = protectionEnabled,
+                        strictMode = strictMode,
+                        redirectDelaySeconds = redirectDelaySeconds,
+                        autoStartOnBoot = autoStartOnBoot,
+                        loggingEnabled = loggingEnabled,
+                        onStrictModeToggle = onStrictModeToggle,
+                        onAutoStartToggle = onAutoStartToggle,
+                        onLoggingToggle = onLoggingToggle,
+                        onRequestVpnSetup = onRequestVpnSetup,
+                        backupInput = backupInput,
+                        backupMessage = backupMessage,
+                        onBackupInputChange = { backupInput = it },
+                        onExport = {
+                            clipboardManager.setText(AnnotatedString(onExportBackup()))
+                            backupMessage = "Backup copied to clipboard."
+                        },
+                        onImport = {
+                            val imported = onImportBackup(backupInput.text)
+                            backupMessage = if (imported) {
+                                backupInput = TextFieldValue("")
+                                "Backup imported successfully."
+                            } else {
+                                "Backup import failed."
+                            }
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeTabContent(
+    protectionEnabled: Boolean,
+    blockedDomains: List<String>,
+    allowedDomains: List<String>,
+    categories: List<BlockingCategory>,
+    schedules: List<BlockingSchedule>,
+    decisionLogs: List<Decision>,
+    onProtectionToggle: (Boolean) -> Unit,
+    onNavigateTab: (AppTab) -> Unit
+) {
+    val now = System.currentTimeMillis()
+    val blockedToday = decisionLogs.count { !it.allow && isSameDay(it.timestampMillis, now) }
+    val requestsToday = decisionLogs.count { isSameDay(it.timestampMillis, now) }
+    val activeRules = blockedDomains.size + allowedDomains.size + categories.sumOf { it.domains.size } + schedules.size
+    val activeSchedule = schedules.firstOrNull { it.isActiveAt(now) } ?: schedules.firstOrNull { it.enabled }
+    val greeting = greetingForHour(Calendar.getInstance().get(Calendar.HOUR_OF_DAY))
+
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    greeting,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                Text("ShieldFocus", fontSize = 20.sp, lineHeight = 24.sp, fontWeight = FontWeight.Bold)
+            }
+            Card(
+                shape = RoundedCornerShape(999.dp),
+                border = BorderStroke(1.dp, Color(0xFFE1E5E7)),
+                colors = CardDefaults.cardColors(containerColor = Color.White)
             ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                Box(
+                    modifier = Modifier.size(40.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Text("Protection settings", style = MaterialTheme.typography.titleMedium)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text("Strict mode", fontWeight = FontWeight.Medium)
+                    Icon(
+                        imageVector = Icons.Outlined.Notifications,
+                        contentDescription = "Notifications",
+                        tint = Color(0xFF4B5563)
+                    )
+                }
+            }
+        }
+
+        Card(
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(
+                1.dp,
+                if (protectionEnabled) Color(0xFFA9D6C2) else Color(0xFFE1E5E7)
+            ),
+            colors = CardDefaults.cardColors(containerColor = Color.White)
+        ) {
+            Column(
+                modifier = Modifier.padding(if (protectionEnabled) 16.dp else 20.dp),
+                verticalArrangement = Arrangement.spacedBy(if (protectionEnabled) 10.dp else 18.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(10.dp)
+                                    .background(
+                                        if (protectionEnabled) Color(0xFF16835A) else Color(0xFFEF3438),
+                                        RoundedCornerShape(999.dp)
+                                    )
+                            )
+                            Spacer(modifier = Modifier.size(8.dp))
                             Text(
-                                "Block uncertain domains instead of warning.",
-                                style = MaterialTheme.typography.bodySmall
+                                if (protectionEnabled) "Protected" else "Unprotected",
+                                color = if (protectionEnabled) Color(0xFF16835A) else Color(0xFFEF3438),
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold
                             )
                         }
-                        Switch(checked = strictMode, onCheckedChange = onStrictModeToggle)
+                        Text(
+                            if (protectionEnabled) "VPN Active" else "VPN Inactive",
+                            fontSize = 24.sp,
+                            lineHeight = 29.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            if (protectionEnabled) "Uptime: 0m" else "Device traffic unfiltered",
+                            fontSize = 13.sp,
+                            color = Color(0xFF8A929F)
+                        )
                     }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                    Card(
+                        shape = RoundedCornerShape(999.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (protectionEnabled) Color(0xFFDDF6E9) else Color(0xFFFFE5E6)
+                        )
                     ) {
-                        Column {
-                            Text("Redirect delay", fontWeight = FontWeight.Medium)
-                            Text(
-                                "$redirectDelaySeconds seconds on the desktop flow.",
-                                style = MaterialTheme.typography.bodySmall
+                        Box(
+                            modifier = Modifier.size(54.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Shield,
+                                contentDescription = null,
+                                tint = if (protectionEnabled) Color(0xFF16835A) else Color(0xFFEF3438),
+                                modifier = Modifier.size(26.dp)
                             )
                         }
                     }
+                }
 
-                    Spacer(modifier = Modifier.height(4.dp))
+                Button(
+                    onClick = { onProtectionToggle(!protectionEnabled) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(43.dp),
+                    shape = RoundedCornerShape(11.dp),
+                    contentPadding = PaddingValues(0.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (protectionEnabled) Color(0xFFE53935) else Color(0xFF19784F)
+                    )
+                ) {
+                    Text(
+                        if (protectionEnabled) "Turn Off Protection" else "Turn On Protection",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
 
-                    Button(
-                        onClick = onRequestVpnSetup,
-                        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp)
-                    ) {
-                        Text(if (protectionEnabled) "VPN active" else "Request VPN setup")
+                if (protectionEnabled) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        StatusPill(
+                            icon = Icons.Outlined.ViewList,
+                            label = "DNS Filter",
+                            value = "On"
+                        )
+                        StatusPill(
+                            icon = Icons.Outlined.Schedule,
+                            label = "Schedule",
+                            value = activeSchedule?.name ?: "Work Mode"
+                        )
                     }
                 }
             }
+        }
 
-            Card(
-                shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
-            ) {
-                Column(
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+            HomeStatCard(
+                modifier = Modifier.weight(1f),
+                icon = Icons.Outlined.DoNotDisturbAlt,
+                iconTint = Color(0xFF6B7280),
+                value = blockedToday.toString(),
+                label = "Blocked Today"
+            )
+            HomeStatCard(
+                modifier = Modifier.weight(1f),
+                icon = Icons.Outlined.BarChart,
+                iconTint = Color(0xFF6B7280),
+                value = requestsToday.toString(),
+                label = "Requests Today"
+            )
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+            HomeStatCard(
+                modifier = Modifier.weight(1f),
+                icon = Icons.Outlined.Rule,
+                iconTint = Color(0xFF6B7280),
+                value = activeRules.toString(),
+                label = "Active Rules"
+            )
+            HomeScheduleCard(
+                modifier = Modifier.weight(1f),
+                scheduleName = activeSchedule?.name ?: "Work Mode",
+                active = activeSchedule != null
+            )
+        }
+
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Quick Actions", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                QuickActionButton(Modifier.weight(1f), Icons.Outlined.Add, "Add Rule") { onNavigateTab(AppTab.Rules) }
+                QuickActionButton(Modifier.weight(1f), Icons.Outlined.BarChart, "View Log") { onNavigateTab(AppTab.Activity) }
+                QuickActionButton(Modifier.weight(1f), Icons.Outlined.Schedule, "Schedules") { onNavigateTab(AppTab.Rules) }
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Recent Activity", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            TextButton(onClick = { onNavigateTab(AppTab.Activity) }, contentPadding = PaddingValues(0.dp)) {
+                Text("View all", fontSize = 12.sp, color = Color(0xFF19784F), fontWeight = FontWeight.SemiBold)
+            }
+        }
+
+        Card(
+            shape = RoundedCornerShape(14.dp),
+            border = BorderStroke(1.dp, Color(0xFFE1E5E7)),
+            colors = CardDefaults.cardColors(containerColor = Color.White)
+        ) {
+            if (decisionLogs.isEmpty()) {
+                Text(
+                    "No activity yet",
                     modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Text("Startup & logging", style = MaterialTheme.typography.titleMedium)
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text("Start on boot", fontWeight = FontWeight.Medium)
-                            Text(
-                                "Enable protection automatically after restart.",
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                        }
-                        Switch(checked = autoStartOnBoot, onCheckedChange = onAutoStartToggle)
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text("Decision logging", fontWeight = FontWeight.Medium)
-                            Text(
-                                "Keep a local history of allow and block decisions.",
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                        }
-                        Switch(checked = loggingEnabled, onCheckedChange = onLoggingToggle)
-                    }
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            } else {
+                Column {
+                    decisionLogs.take(3).forEach { decision -> RecentActivityItem(decision) }
                 }
             }
+        }
+    }
+}
 
-            CategorySection(
-                categories = categories,
-                schedules = schedules,
-                inputValue = categoryInput,
-                onInputChange = { categoryInput = it },
-                onSubmit = {
-                    val value = categoryInput.trim()
-                    if (value.isNotEmpty()) {
-                        onAddCategory(value)
-                        categoryInput = ""
-                    }
-                },
-                onRemoveCategory = onRemoveCategory,
-                onAddDomain = onAddDomainToCategory,
-                onRemoveDomain = onRemoveDomainFromCategory,
-                onAssignSchedule = onAssignScheduleToCategory
-            )
+@Composable
+private fun HomeStatCard(
+    modifier: Modifier = Modifier,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    iconTint: Color,
+    value: String,
+    label: String
+) {
+    Card(
+        modifier = modifier.height(103.dp),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, Color(0xFFE1E5E7)),
+        colors = CardDefaults.cardColors(containerColor = Color.White)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Icon(imageVector = icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(17.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(value, fontSize = 18.sp, lineHeight = 21.sp, fontWeight = FontWeight.Medium)
+                Text(label, fontSize = 11.sp, color = Color(0xFF9299A5))
+            }
+        }
+    }
+}
 
-            ScheduleSection(
-                schedules = schedules,
-                inputValue = scheduleInput,
-                onInputChange = { scheduleInput = it },
-                onSubmit = {
-                    val value = scheduleInput.trim()
-                    if (value.isNotEmpty()) {
-                        onAddSchedule(value)
-                        scheduleInput = ""
-                    }
-                },
-                onRemoveSchedule = onRemoveSchedule
-            )
-
-            BackupSection(
-                backupInput = backupInput,
-                backupMessage = backupMessage,
-                onBackupInputChange = { backupInput = it },
-                onExport = {
-                    clipboardManager.setText(AnnotatedString(onExportBackup()))
-                    backupMessage = "Backup copied to clipboard."
-                },
-                onImport = {
-                    val imported = onImportBackup(backupInput.text)
-                    backupMessage = if (imported) {
-                        backupInput = TextFieldValue("")
-                        "Backup imported successfully."
-                    } else {
-                        "Backup import failed."
-                    }
+@Composable
+private fun HomeScheduleCard(
+    modifier: Modifier = Modifier,
+    scheduleName: String,
+    active: Boolean
+) {
+    Card(
+        modifier = modifier.height(103.dp),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, Color(0xFFE1E5E7)),
+        colors = CardDefaults.cardColors(containerColor = Color.White)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Icon(imageVector = Icons.Outlined.Schedule, contentDescription = null, tint = Color(0xFF7D8795), modifier = Modifier.size(17.dp))
+                Card(
+                    shape = RoundedCornerShape(999.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (active) Color(0xFFD1FAE5) else Color(0xFFE5E7EB)
+                    )
+                ) {
+                    Text(
+                        text = if (active) "Active" else "Idle",
+                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                        color = if (active) Color(0xFF0F9D58) else Color(0xFF4B5563),
+                        style = MaterialTheme.typography.labelSmall
+                    )
                 }
-            )
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(scheduleName, fontSize = 18.sp, lineHeight = 21.sp, fontWeight = FontWeight.Medium)
+                Text("Schedule", fontSize = 11.sp, color = Color(0xFF9299A5))
+            }
+        }
+    }
+}
 
-            DomainSection(
-                title = "Block list",
-                subtitle = "Domains blocked on-device",
-                inputValue = blockedInput,
-                placeholder = "e.g. reddit.com",
-                buttonLabel = "Add",
-                domains = blockedDomains,
-                onInputChange = { blockedInput = it },
-                onSubmit = {
-                    val value = blockedInput.trim()
-                    if (value.isNotEmpty()) {
-                        onAddBlockedDomain(value)
-                        blockedInput = ""
-                    }
-                },
-                onRemove = onRemoveBlockedDomain
+@Composable
+private fun StatusPill(
+    modifier: Modifier = Modifier,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    value: String
+) {
+    Card(
+        modifier = modifier,
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFF4F6F8))
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = Color(0xFF64748B),
+                modifier = Modifier.size(16.dp)
             )
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    label,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    value,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color(0xFF0F9D58),
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+    }
+}
 
-            DomainSection(
-                title = "Allow list",
-                subtitle = "Domains that always stay accessible",
-                inputValue = allowedInput,
-                placeholder = "e.g. educational-site.org",
-                buttonLabel = "Allow",
-                domains = allowedDomains,
-                onInputChange = { allowedInput = it },
-                onSubmit = {
-                    val value = allowedInput.trim()
-                    if (value.isNotEmpty()) {
-                        onAddAllowedDomain(value)
-                        allowedInput = ""
-                    }
-                },
-                onRemove = onRemoveAllowedDomain
-            )
-
-            DecisionLogSection(
-                logs = decisionLogs,
-                onClear = onClearDecisionLogs
+@Composable
+private fun QuickActionButton(
+    modifier: Modifier = Modifier,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = modifier
+            .height(70.dp)
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, Color(0xFFE1E5E7)),
+        colors = CardDefaults.cardColors(containerColor = Color.White)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(vertical = 10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Icon(imageVector = icon, contentDescription = null, tint = Color(0xFF19784F), modifier = Modifier.size(21.dp))
+            Text(
+                label,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold
             )
         }
     }
+}
+
+@Composable
+private fun RecentActivityItem(decision: Decision) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Card(
+                shape = RoundedCornerShape(8.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (decision.allow) Color(0xFFD1FAE5) else Color(0xFFFEE2E2)
+                )
+            ) {
+                Box(
+                    modifier = Modifier.size(34.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (decision.allow) Icons.Outlined.Code else Icons.Outlined.DoNotDisturbAlt,
+                        contentDescription = null,
+                        tint = if (decision.allow) Color(0xFF0F9D58) else Color(0xFFE53935)
+                    )
+                }
+            }
+
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(decision.domain, fontSize = 14.sp, lineHeight = 17.sp, fontWeight = FontWeight.Medium)
+                Text(decision.reason, fontSize = 11.sp, color = Color(0xFF9299A5))
+            }
+
+            Column(horizontalAlignment = Alignment.End) {
+                Card(
+                    shape = RoundedCornerShape(999.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (decision.allow) Color(0xFFD1FAE5) else Color(0xFFFEE2E2)
+                    )
+                ) {
+                    Text(
+                        text = if (decision.allow) "Allowed" else "Blocked",
+                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                        color = if (decision.allow) Color(0xFF0F9D58) else Color(0xFFE53935),
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
+                Text(
+                    text = formatRelativeTime(decision.timestampMillis),
+                    fontSize = 10.sp,
+                    color = Color(0xFF9299A5)
+                )
+            }
+        }
+}
+
+private fun formatRelativeTime(timestampMillis: Long): String {
+    val diffMinutes = ((System.currentTimeMillis() - timestampMillis) / 60000L).coerceAtLeast(0)
+    return when {
+        diffMinutes < 1 -> "Just now"
+        diffMinutes < 60 -> "$diffMinutes min ago"
+        diffMinutes < 1440 -> "${diffMinutes / 60} h ago"
+        else -> "${diffMinutes / 1440} d ago"
+    }
+}
+
+private fun greetingForHour(hour: Int): String {
+    return when (hour) {
+        in 5..11 -> "Good morning"
+        in 12..16 -> "Good afternoon"
+        in 17..21 -> "Good evening"
+        else -> "Good night"
+    }
+}
+
+private fun isSameDay(timestampMillis: Long, referenceMillis: Long): Boolean {
+    val a = Calendar.getInstance().apply { timeInMillis = timestampMillis }
+    val b = Calendar.getInstance().apply { timeInMillis = referenceMillis }
+    return a.get(Calendar.YEAR) == b.get(Calendar.YEAR) &&
+        a.get(Calendar.DAY_OF_YEAR) == b.get(Calendar.DAY_OF_YEAR)
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RulesTabContent(
+    categories: List<BlockingCategory>,
+    schedules: List<BlockingSchedule>,
+    categoryInput: String,
+    onCategoryInputChange: (String) -> Unit,
+    onCreateCategory: () -> Unit,
+    onRemoveCategory: (String) -> Unit,
+    onAddDomainToCategory: (String, String) -> Unit,
+    onRemoveDomainFromCategory: (String, String) -> Unit,
+    onAssignScheduleToCategory: (String, String) -> Unit,
+    scheduleInput: String,
+    onScheduleInputChange: (String) -> Unit,
+    onCreateSchedule: () -> Unit,
+    onRemoveSchedule: (String) -> Unit,
+    onUpdateSchedule: (String, String, Set<Int>, Int, Int, Boolean) -> Unit,
+    blockedDomains: List<String>,
+    blockedInput: String,
+    onBlockedInputChange: (String) -> Unit,
+    onCreateBlockedDomain: () -> Unit,
+    onRemoveBlockedDomain: (String) -> Unit,
+    allowedDomains: List<String>,
+    allowedInput: String,
+    onAllowedInputChange: (String) -> Unit,
+    onCreateAllowedDomain: () -> Unit,
+    onRemoveAllowedDomain: (String) -> Unit,
+    onAddBlockedDomain: (String) -> Unit,
+    onAddAllowedDomain: (String) -> Unit
+) {
+    var selectedSection by remember { mutableStateOf(BlocklistSection.DefaultLists) }
+    var showAddSheet by remember { mutableStateOf(false) }
+    var sheetMode by remember { mutableStateOf(RuleSheetMode.Block) }
+    var sheetDomain by remember { mutableStateOf("") }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val defaultPresets = defaultBlocklistPresetsClean()
+    val categoryPresets = defaultCategoryPresetsClean()
+    var activePresetId by remember { mutableStateOf(defaultPresets.first().id) }
+    var activeCategoryIds by remember { mutableStateOf(setOf("ad-networks", "trackers", "malware-phishing")) }
+    val activeBlockedCount = blockedDomains.size + activeCategoryIds.size
+    val activeCategoryCount = activeCategoryIds.size
+
+    Box(
+        modifier = Modifier.fillMaxSize()
+    ) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Card(
+                            shape = RoundedCornerShape(14.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFFEAF0FF))
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.ViewList,
+                                contentDescription = null,
+                                tint = Color(0xFF1D4ED8),
+                                modifier = Modifier.padding(10.dp)
+                            )
+                        }
+                        Column {
+                            Text("Blocklists", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                "Manage pre-built lists and category presets",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+                Card(
+                    shape = RoundedCornerShape(999.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFD1FAE5))
+                ) {
+                    Text(
+                        text = "${compactCount(activeBlockedCount)} blocked",
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        color = Color(0xFF0F9D58),
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(28.dp)
+            ) {
+                BlocklistSectionTab(
+                    modifier = Modifier.weight(1f),
+                    label = "Default Lists",
+                    selected = selectedSection == BlocklistSection.DefaultLists,
+                    onClick = { selectedSection = BlocklistSection.DefaultLists }
+                )
+                BlocklistSectionTab(
+                    modifier = Modifier.weight(1f),
+                    label = "Categories",
+                    selected = selectedSection == BlocklistSection.Categories,
+                    onClick = { selectedSection = BlocklistSection.Categories }
+                )
+            }
+
+            when (selectedSection) {
+                BlocklistSection.DefaultLists -> {
+                    BlocklistHeroCard(
+                        title = "Pre-built Blocklists",
+                        subtitle = "Tap a list to import and activate it instantly",
+                        icon = Icons.Outlined.ViewList
+                    )
+
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        defaultPresets.forEach { preset ->
+                            BlocklistPresetCard(
+                                preset = preset,
+                                active = preset.id == activePresetId,
+                                onActivate = {
+                                    activePresetId = preset.id
+                                    sheetMode = RuleSheetMode.Block
+                                }
+                            )
+                        }
+                    }
+                }
+
+                BlocklistSection.Categories -> {
+                    BlocklistHeroCard(
+                        title = "Category Toggles",
+                        subtitle = "${compactCount(activeCategoryCount)} of ${categoryPresets.size} categories active",
+                        icon = Icons.Outlined.Shield
+                    )
+
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        categoryPresets.forEach { preset ->
+                            val checked = activeCategoryIds.contains(preset.id)
+                            CategoryPresetCard(
+                                preset = preset,
+                                checked = checked,
+                                onCheckedChange = { enabled ->
+                                    activeCategoryIds = if (enabled) {
+                                        activeCategoryIds + preset.id
+                                    } else {
+                                        activeCategoryIds - preset.id
+                                    }
+                                }
+                            )
+                        }
+                    }
+
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(18.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5EE))
+                    ) {
+                        Text(
+                            text = "Category toggles apply across all imported blocklists.",
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                            color = Color(0xFF0F9D58),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            }
+        }
+
+        Card(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(8.dp)
+                .clickable {
+                    sheetMode = RuleSheetMode.Block
+                    showAddSheet = true
+                },
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF1D7A4A))
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(imageVector = Icons.Outlined.Add, contentDescription = null, tint = Color.White)
+                Text("Add Rule", color = Color.White, fontWeight = FontWeight.SemiBold)
+            }
+        }
+    }
+
+    if (showAddSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showAddSheet = false },
+            sheetState = sheetState
+        ) {
+            AddRuleSheet(
+                domain = sheetDomain,
+                onDomainChange = { sheetDomain = it },
+                selectedMode = sheetMode,
+                onSelectMode = { sheetMode = it },
+                onClose = {
+                    showAddSheet = false
+                    sheetDomain = ""
+                },
+                onSubmit = {
+                    val value = sheetDomain.trim()
+                    if (value.isNotEmpty()) {
+                        if (sheetMode == RuleSheetMode.Block) {
+                            onAddBlockedDomain(value)
+                        } else {
+                            onAddAllowedDomain(value)
+                        }
+                    }
+                    showAddSheet = false
+                    sheetDomain = ""
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun BlocklistSectionTab(
+    modifier: Modifier = Modifier,
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = modifier.clickable(onClick = onClick),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            text = label,
+            color = if (selected) Color(0xFF1D4ED8) else MaterialTheme.colorScheme.onSurfaceVariant,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+            style = MaterialTheme.typography.titleSmall
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(3.dp)
+                .background(
+                    color = if (selected) Color(0xFF1D4ED8) else Color.Transparent,
+                    shape = RoundedCornerShape(999.dp)
+                )
+        )
+    }
+}
+
+@Composable
+private fun BlocklistHeroCard(
+    title: String,
+    subtitle: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector
+) {
+    Card(
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Card(
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFEAF0FF))
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = Color(0xFF1D4ED8),
+                    modifier = Modifier.padding(10.dp)
+                )
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun BlocklistPresetCard(
+    preset: BlocklistPreset,
+    active: Boolean,
+    onActivate: () -> Unit
+) {
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        border = BorderStroke(1.dp, if (active) preset.accentColor.copy(alpha = 0.35f) else MaterialTheme.colorScheme.outlineVariant),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Card(
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = preset.accentColor.copy(alpha = 0.12f))
+                ) {
+                    Icon(
+                        imageVector = preset.icon,
+                        contentDescription = null,
+                        tint = preset.accentColor,
+                        modifier = Modifier.padding(10.dp)
+                    )
+                }
+
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(preset.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        if (preset.recommended) {
+                            Card(
+                                shape = RoundedCornerShape(999.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5EE))
+                            ) {
+                                Text(
+                                    "Recommended",
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                    color = Color(0xFF0F9D58),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+                    }
+                    Text(
+                        preset.meta,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                if (active) {
+                    Switch(checked = true, onCheckedChange = { })
+                } else {
+                    Button(
+                        onClick = onActivate,
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = preset.accentColor)
+                    ) {
+                        Text("Import")
+                    }
+                }
+            }
+
+            Text(
+                preset.description,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                preset.tags.forEach { tag ->
+                    Card(
+                        shape = RoundedCornerShape(999.dp),
+                        colors = CardDefaults.cardColors(containerColor = preset.accentColor.copy(alpha = 0.10f))
+                    ) {
+                        Text(
+                            text = tag,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            color = preset.accentColor,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
+
+            if (active) {
+                Card(
+                    shape = RoundedCornerShape(999.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5EE))
+                ) {
+                    Text(
+                        "Active",
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        color = Color(0xFF0F9D58),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CategoryPresetCard(
+    preset: CategoryPreset,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        border = BorderStroke(1.dp, if (checked) preset.accentColor.copy(alpha = 0.35f) else MaterialTheme.colorScheme.outlineVariant),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Card(
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = preset.accentColor.copy(alpha = 0.12f))
+            ) {
+                Icon(
+                    imageVector = preset.icon,
+                    contentDescription = null,
+                    tint = preset.accentColor,
+                    modifier = Modifier.padding(10.dp)
+                )
+            }
+
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(preset.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    if (checked) {
+                        Card(
+                            shape = RoundedCornerShape(999.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5EE))
+                        ) {
+                            Text(
+                                "Active",
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                color = Color(0xFF0F9D58),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
+
+                Text(
+                    preset.meta,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Text(
+                    preset.description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Switch(checked = checked, onCheckedChange = onCheckedChange)
+        }
+    }
+}
+
+private data class BlocklistPreset(
+    val id: String,
+    val name: String,
+    val meta: String,
+    val description: String,
+    val tags: List<String>,
+    val accentColor: Color,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector,
+    val recommended: Boolean = false
+)
+
+private data class CategoryPreset(
+    val id: String,
+    val name: String,
+    val meta: String,
+    val description: String,
+    val accentColor: Color,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector
+)
+
+private fun defaultBlocklistPresets(): List<BlocklistPreset> {
+    return listOf(
+        BlocklistPreset(
+            id = "shieldfocus-default",
+            name = "ShieldFocus Default",
+            meta = "10k domains · Updated Jul 15, 2026",
+            description = "Curated list covering ads, trackers, and known malware domains. Best starting point for most users.",
+            tags = listOf("Ads", "Trackers", "Malware"),
+            accentColor = Color(0xFF1D7A4A),
+            icon = Icons.Outlined.Shield,
+            recommended = true
+        ),
+        BlocklistPreset(
+            id = "hagezi-pro",
+            name = "Hagezi Pro",
+            meta = "49k domains · Updated Jul 14, 2026",
+            description = "High-quality multi-purpose blocklist maintained by the community. Balanced coverage for ads, trackers, and telemetry.",
+            tags = listOf("Ads", "Trackers", "Telemetry"),
+            accentColor = Color(0xFF2563EB),
+            icon = Icons.Outlined.FlashOn
+        ),
+        BlocklistPreset(
+            id = "oisd-big",
+            name = "OISD Big",
+            meta = "185k domains · Updated Jul 13, 2026",
+            description = "One of the most comprehensive blocklists. Aggregates multiple sources for broad coverage of ads and trackers.",
+            tags = listOf("Ads", "Trackers", "Social", "Telemetry"),
+            accentColor = Color(0xFF7C3AED),
+            icon = Icons.Outlined.ViewList
+        ),
+        BlocklistPreset(
+            id = "malware-list",
+            name = "Malware Domain List",
+            meta = "12k domains · Updated Jul 16, 2026",
+            description = "Focused on active phishing, malware, and ransomware distribution domains. Updated daily from threat intelligence.",
+            tags = listOf("Security", "Phishing", "Malware"),
+            accentColor = Color(0xFFDC2626),
+            icon = Icons.Outlined.Block
+        )
+    )
+}
+
+private fun defaultCategoryPresets(): List<CategoryPreset> {
+    return listOf(
+        CategoryPreset(
+            id = "ad-networks",
+            name = "Ad Networks",
+            meta = "5k domains · Banner ads, pop-ups, and ad delivery",
+            description = "Blocks advertising infrastructure across websites and apps.",
+            accentColor = Color(0xFF1D7A4A),
+            icon = Icons.Outlined.Block
+        ),
+        CategoryPreset(
+            id = "trackers",
+            name = "Trackers",
+            meta = "3k domains · Analytics, pixel trackers, and beacons",
+            description = "Stops analytics networks and tracking scripts from following browsing activity.",
+            accentColor = Color(0xFFEA580C),
+            icon = Icons.Outlined.Schedule
+        ),
+        CategoryPreset(
+            id = "malware-phishing",
+            name = "Malware & Phishing",
+            meta = "2k domains · Known malicious and impersonation domains",
+            description = "Adds protection against scam pages, credential theft, and malware delivery.",
+            accentColor = Color(0xFF7C3AED),
+            icon = Icons.Outlined.Shield
+        ),
+        CategoryPreset(
+            id = "social-media",
+            name = "Social Media",
+            meta = "890 domains · Social network trackers and embeds",
+            description = "Useful for focus sessions and reducing distraction-heavy social embeds.",
+            accentColor = Color(0xFF6B7280),
+            icon = Icons.Outlined.Home
+        ),
+        CategoryPreset(
+            id = "telemetry",
+            name = "Telemetry",
+            meta = "640 domains · OS and app telemetry endpoints",
+            description = "Blocks platform telemetry and app reporting domains.",
+            accentColor = Color(0xFF64748B),
+            icon = Icons.Outlined.BarChart
+        ),
+        CategoryPreset(
+            id = "gambling",
+            name = "Gambling",
+            meta = "1k domains · Online gambling and betting",
+            description = "Targets gambling platforms and associated ad networks.",
+            accentColor = Color(0xFFB45309),
+            icon = Icons.Outlined.FlashOn
+        ),
+        CategoryPreset(
+            id = "adult-content",
+            name = "Adult Content",
+            meta = "3k domains · Adult websites and explicit media",
+            description = "Restricts adult content categories and associated content delivery hosts.",
+            accentColor = Color(0xFFDB2777),
+            icon = Icons.Outlined.Block
+        ),
+        CategoryPreset(
+            id = "cryptomining",
+            name = "Cryptomining",
+            meta = "310 domains · Browser-based crypto miners",
+            description = "Blocks in-browser mining scripts and pool endpoints.",
+            accentColor = Color(0xFF0EA5E9),
+            icon = Icons.Outlined.Schedule
+        )
+    )
+}
+
+private fun compactCount(value: Int): String {
+    return when {
+        value >= 1_000_000 -> "${value / 1_000_000}m"
+        value >= 1_000 -> "${value / 1_000}k"
+        else -> value.toString()
+    }
+}
+
+private fun defaultBlocklistPresetsClean(): List<BlocklistPreset> {
+    return listOf(
+        BlocklistPreset(
+            id = "shieldfocus-default",
+            name = "ShieldFocus Default",
+            meta = "10k domains - Updated Jul 15, 2026",
+            description = "Curated list covering ads, trackers, and known malware domains. Best starting point for most users.",
+            tags = listOf("Ads", "Trackers", "Malware"),
+            accentColor = Color(0xFF1D7A4A),
+            icon = Icons.Outlined.Shield,
+            recommended = true
+        ),
+        BlocklistPreset(
+            id = "hagezi-pro",
+            name = "Hagezi Pro",
+            meta = "49k domains - Updated Jul 14, 2026",
+            description = "High-quality multi-purpose blocklist maintained by the community. Balanced coverage for ads, trackers, and telemetry.",
+            tags = listOf("Ads", "Trackers", "Telemetry"),
+            accentColor = Color(0xFF2563EB),
+            icon = Icons.Outlined.FlashOn
+        ),
+        BlocklistPreset(
+            id = "oisd-big",
+            name = "OISD Big",
+            meta = "185k domains - Updated Jul 13, 2026",
+            description = "One of the most comprehensive blocklists. Aggregates multiple sources for broad coverage of ads and trackers.",
+            tags = listOf("Ads", "Trackers", "Social", "Telemetry"),
+            accentColor = Color(0xFF7C3AED),
+            icon = Icons.Outlined.ViewList
+        ),
+        BlocklistPreset(
+            id = "malware-list",
+            name = "Malware Domain List",
+            meta = "12k domains - Updated Jul 16, 2026",
+            description = "Focused on active phishing, malware, and ransomware distribution domains. Updated daily from threat intelligence.",
+            tags = listOf("Security", "Phishing", "Malware"),
+            accentColor = Color(0xFFDC2626),
+            icon = Icons.Outlined.Block
+        )
+    )
+}
+
+private fun defaultCategoryPresetsClean(): List<CategoryPreset> {
+    return listOf(
+        CategoryPreset(
+            id = "ad-networks",
+            name = "Ad Networks",
+            meta = "5k domains - Banner ads, pop-ups, and ad delivery",
+            description = "Blocks advertising infrastructure across websites and apps.",
+            accentColor = Color(0xFF1D7A4A),
+            icon = Icons.Outlined.Block
+        ),
+        CategoryPreset(
+            id = "trackers",
+            name = "Trackers",
+            meta = "3k domains - Analytics, pixel trackers, and beacons",
+            description = "Stops analytics networks and tracking scripts from following browsing activity.",
+            accentColor = Color(0xFFEA580C),
+            icon = Icons.Outlined.Schedule
+        ),
+        CategoryPreset(
+            id = "malware-phishing",
+            name = "Malware & Phishing",
+            meta = "2k domains - Known malicious and impersonation domains",
+            description = "Adds protection against scam pages, credential theft, and malware delivery.",
+            accentColor = Color(0xFF7C3AED),
+            icon = Icons.Outlined.Shield
+        ),
+        CategoryPreset(
+            id = "social-media",
+            name = "Social Media",
+            meta = "890 domains - Social network trackers and embeds",
+            description = "Useful for focus sessions and reducing distraction-heavy social embeds.",
+            accentColor = Color(0xFF6B7280),
+            icon = Icons.Outlined.Home
+        ),
+        CategoryPreset(
+            id = "telemetry",
+            name = "Telemetry",
+            meta = "640 domains - OS and app telemetry endpoints",
+            description = "Blocks platform telemetry and app reporting domains.",
+            accentColor = Color(0xFF64748B),
+            icon = Icons.Outlined.BarChart
+        ),
+        CategoryPreset(
+            id = "gambling",
+            name = "Gambling",
+            meta = "1k domains - Online gambling and betting",
+            description = "Targets gambling platforms and associated ad networks.",
+            accentColor = Color(0xFFB45309),
+            icon = Icons.Outlined.FlashOn
+        ),
+        CategoryPreset(
+            id = "adult-content",
+            name = "Adult Content",
+            meta = "3k domains - Adult websites and explicit media",
+            description = "Restricts adult content categories and associated content delivery hosts.",
+            accentColor = Color(0xFFDB2777),
+            icon = Icons.Outlined.Block
+        ),
+        CategoryPreset(
+            id = "cryptomining",
+            name = "Cryptomining",
+            meta = "310 domains - Browser-based crypto miners",
+            description = "Blocks in-browser mining scripts and pool endpoints.",
+            accentColor = Color(0xFF0EA5E9),
+            icon = Icons.Outlined.Schedule
+        )
+    )
+}
+
+@Composable
+private fun FilterChip(
+    selected: Boolean,
+    label: String,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier.clickable(onClick = onClick),
+        shape = RoundedCornerShape(999.dp),
+        border = BorderStroke(1.dp, if (selected) Color(0xFF1D7A4A) else MaterialTheme.colorScheme.outlineVariant),
+        colors = CardDefaults.cardColors(
+            containerColor = if (selected) Color(0xFFE8F5EE) else MaterialTheme.colorScheme.surface
+        )
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            color = if (selected) Color(0xFF1D7A4A) else MaterialTheme.colorScheme.onSurfaceVariant,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+            style = MaterialTheme.typography.labelMedium
+        )
+    }
+}
+
+@Composable
+private fun RuleItemCard(
+    title: String,
+    subtitle: String,
+    badgeText: String,
+    badgeColor: Color,
+    badgeTextColor: Color,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    iconTint: Color,
+    switchChecked: Boolean,
+    onSwitchToggle: (Boolean) -> Unit
+) {
+    Card(
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Card(
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = badgeColor)
+            ) {
+                Box(
+                    modifier = Modifier.size(40.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(imageVector = icon, contentDescription = null, tint = iconTint)
+                }
+            }
+
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(title, fontWeight = FontWeight.SemiBold)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Card(
+                        shape = RoundedCornerShape(999.dp),
+                        colors = CardDefaults.cardColors(containerColor = badgeColor)
+                    ) {
+                        Text(
+                            text = badgeText,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                            color = badgeTextColor,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
+
+            Switch(checked = switchChecked, onCheckedChange = onSwitchToggle)
+        }
+    }
+}
+
+@Composable
+private fun AddRuleSheet(
+    domain: String,
+    onDomainChange: (String) -> Unit,
+    selectedMode: RuleSheetMode,
+    onSelectMode: (RuleSheetMode) -> Unit,
+    onClose: () -> Unit,
+    onSubmit: () -> Unit
+) {
+    Column(
+        modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Box(
+            modifier = Modifier.fillMaxWidth(),
+            contentAlignment = Alignment.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(width = 46.dp, height = 4.dp)
+                    .background(MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(999.dp))
+            )
+        }
+
+        Text("Add Domain Rule", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+        Text(
+            "Enter a domain to block or allow across all browsers.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        OutlinedTextField(
+            value = domain,
+            onValueChange = onDomainChange,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            singleLine = true,
+            leadingIcon = {
+                Icon(imageVector = Icons.Outlined.Home, contentDescription = null)
+            },
+            placeholder = { Text("Domain") }
+        )
+
+        Text("Rule Type", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+            RuleModeButton(
+                modifier = Modifier.weight(1f),
+                label = "Block",
+                selected = selectedMode == RuleSheetMode.Block,
+                selectedColor = Color(0xFFFEE2E2),
+                selectedTextColor = Color(0xFFE53935),
+                onClick = { onSelectMode(RuleSheetMode.Block) }
+            )
+            RuleModeButton(
+                modifier = Modifier.weight(1f),
+                label = "Allow",
+                selected = selectedMode == RuleSheetMode.Allow,
+                selectedColor = Color(0xFFD1FAE5),
+                selectedTextColor = Color(0xFF0F9D58),
+                onClick = { onSelectMode(RuleSheetMode.Allow) }
+            )
+        }
+
+        Button(
+            onClick = onSubmit,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(14.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = if (selectedMode == RuleSheetMode.Block) Color(0xFF1D7A4A).copy(alpha = 0.95f) else Color(0xFF1D7A4A)
+            )
+        ) {
+            Text(if (selectedMode == RuleSheetMode.Block) "Block Domain" else "Allow Domain")
+        }
+
+        TextButton(onClick = onClose, modifier = Modifier.fillMaxWidth()) {
+            Text("Close")
+        }
+    }
+}
+
+@Composable
+private fun RuleModeButton(
+    modifier: Modifier = Modifier,
+    label: String,
+    selected: Boolean,
+    selectedColor: Color,
+    selectedTextColor: Color,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = modifier.clickable(onClick = onClick),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, if (selected) selectedTextColor else MaterialTheme.colorScheme.outlineVariant),
+        colors = CardDefaults.cardColors(containerColor = if (selected) selectedColor else MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Column(
+            modifier = Modifier.padding(vertical = 18.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Icon(
+                imageVector = if (label == "Block") Icons.Outlined.Block else Icons.Outlined.CheckCircleOutline,
+                contentDescription = null,
+                tint = if (selected) selectedTextColor else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                label,
+                color = if (selected) selectedTextColor else MaterialTheme.colorScheme.onSurfaceVariant,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+    }
+}
+
+private enum class RuleFilter {
+    All,
+    Blocked,
+    Allowed,
+    Categories
+}
+
+private enum class RuleSheetMode {
+    Block,
+    Allow
+}
+
+private enum class BlocklistSection {
+    DefaultLists,
+    Categories
+}
+
+@Composable
+private fun SettingsTabContent(
+    protectionEnabled: Boolean,
+    strictMode: Boolean,
+    redirectDelaySeconds: Int,
+    autoStartOnBoot: Boolean,
+    loggingEnabled: Boolean,
+    onStrictModeToggle: (Boolean) -> Unit,
+    onAutoStartToggle: (Boolean) -> Unit,
+    onLoggingToggle: (Boolean) -> Unit,
+    onRequestVpnSetup: () -> Unit,
+    backupInput: TextFieldValue,
+    backupMessage: String,
+    onBackupInputChange: (TextFieldValue) -> Unit,
+    onExport: () -> Unit,
+    onImport: () -> Unit
+) {
+    Card(
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text("Protection settings", style = MaterialTheme.typography.titleMedium)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text("Strict mode", fontWeight = FontWeight.Medium)
+                    Text(
+                        "Block uncertain domains instead of warning.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                Switch(checked = strictMode, onCheckedChange = onStrictModeToggle)
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text("Redirect delay", fontWeight = FontWeight.Medium)
+                    Text(
+                        "$redirectDelaySeconds seconds on the desktop flow.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            Button(
+                onClick = onRequestVpnSetup,
+                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp)
+            ) {
+                Text(if (protectionEnabled) "VPN active" else "Request VPN setup")
+            }
+        }
+    }
+
+    Card(
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text("Startup & logging", style = MaterialTheme.typography.titleMedium)
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text("Start on boot", fontWeight = FontWeight.Medium)
+                    Text(
+                        "Enable protection automatically after restart.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                Switch(checked = autoStartOnBoot, onCheckedChange = onAutoStartToggle)
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text("Decision logging", fontWeight = FontWeight.Medium)
+                    Text(
+                        "Keep a local history of allow and block decisions.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                Switch(checked = loggingEnabled, onCheckedChange = onLoggingToggle)
+            }
+        }
+    }
+
+    BackupSection(
+        backupInput = backupInput,
+        backupMessage = backupMessage,
+        onBackupInputChange = onBackupInputChange,
+        onExport = onExport,
+        onImport = onImport
+    )
+}
+
+@Composable
+private fun BottomNavigationBar(
+    selectedTab: AppTab,
+    onTabSelected: (AppTab) -> Unit
+) {
+    val selectedColor = Color(0xFF1F7A4D)
+    val unselectedColor = Color(0xFF8E96A8)
+
+    Card(
+        shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            AppTab.values().forEach { tab ->
+                val selected = tab == selectedTab
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { onTabSelected(tab) },
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(
+                        imageVector = tab.icon,
+                        contentDescription = tab.label,
+                        tint = if (selected) selectedColor else unselectedColor
+                    )
+                    Text(
+                        text = tab.label,
+                        color = if (selected) selectedColor else unselectedColor,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                        fontSize = 12.sp
+                    )
+                    if (selected) {
+                        Box(
+                            modifier = Modifier
+                                .size(4.dp)
+                                .background(selectedColor, RoundedCornerShape(999.dp))
+                        )
+                    } else {
+                        Spacer(modifier = Modifier.size(4.dp))
+                    }
+                }
+            }
+        }
+    }
+}
+
+private enum class AppTab(
+    val label: String,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector
+) {
+    Home("Home", Icons.Outlined.Home),
+    Rules("Blocklists", Icons.Outlined.ViewList),
+    Activity("Activity", Icons.Outlined.ShowChart),
+    Settings("Settings", Icons.Outlined.Settings)
 }
 
 @Composable
@@ -648,12 +2153,13 @@ private fun CategoryCard(
 }
 
 @Composable
-private fun ScheduleSection(
+private fun ScheduleSectionEditor(
     schedules: List<BlockingSchedule>,
     inputValue: String,
     onInputChange: (String) -> Unit,
     onSubmit: () -> Unit,
-    onRemoveSchedule: (String) -> Unit
+    onRemoveSchedule: (String) -> Unit,
+    onUpdateSchedule: (String, String, Set<Int>, Int, Int, Boolean) -> Unit
 ) {
     Card(
         shape = RoundedCornerShape(24.dp),
@@ -696,39 +2202,210 @@ private fun ScheduleSection(
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     schedules.forEach { schedule ->
-                        Card(
-                            shape = RoundedCornerShape(18.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant
-                            )
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(12.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column {
-                                        Text(schedule.name, fontWeight = FontWeight.SemiBold)
-                                        Text(
-                                            "${formatDays(schedule.activeDays)}  •  ${formatMinute(schedule.startMinuteOfDay)} - ${formatMinute(schedule.endMinuteOfDay)}",
-                                            style = MaterialTheme.typography.bodySmall
-                                        )
-                                    }
-                                    TextButton(onClick = { onRemoveSchedule(schedule.id) }) {
-                                        Text("Remove")
-                                    }
-                                }
-                            }
-                        }
+                        EditableScheduleCard(
+                            schedule = schedule,
+                            onRemoveSchedule = onRemoveSchedule,
+                            onUpdateSchedule = onUpdateSchedule
+                        )
                     }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun EditableScheduleCard(
+    schedule: BlockingSchedule,
+    onRemoveSchedule: (String) -> Unit,
+    onUpdateSchedule: (String, String, Set<Int>, Int, Int, Boolean) -> Unit
+) {
+    var name by remember(schedule.id) { mutableStateOf(schedule.name) }
+    var startText by remember(schedule.id) { mutableStateOf(formatMinute(schedule.startMinuteOfDay)) }
+    var endText by remember(schedule.id) { mutableStateOf(formatMinute(schedule.endMinuteOfDay)) }
+    var daysText by remember(schedule.id) { mutableStateOf(formatDaysInput(schedule.activeDays)) }
+    var enabled by remember(schedule.id) { mutableStateOf(schedule.enabled) }
+
+    Card(
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text("Edit schedule", fontWeight = FontWeight.SemiBold)
+                    Text(
+                        if (schedule.enabled) "Enabled" else "Disabled",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                Switch(checked = enabled, onCheckedChange = { enabled = it })
+            }
+
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                shape = RoundedCornerShape(18.dp),
+                label = { Text("Name") }
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedTextField(
+                    value = startText,
+                    onValueChange = { startText = it },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    shape = RoundedCornerShape(18.dp),
+                    label = { Text("Start") },
+                    placeholder = { Text("09:00 AM") }
+                )
+                OutlinedTextField(
+                    value = endText,
+                    onValueChange = { endText = it },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    shape = RoundedCornerShape(18.dp),
+                    label = { Text("End") },
+                    placeholder = { Text("05:00 PM") }
+                )
+            }
+
+            OutlinedTextField(
+                value = daysText,
+                onValueChange = { daysText = it },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                shape = RoundedCornerShape(18.dp),
+                label = { Text("Days") },
+                placeholder = { Text("Mon,Tue,Wed,Thu,Fri") }
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(onClick = { onRemoveSchedule(schedule.id) }) {
+                    Text("Remove")
+                }
+                Button(
+                    onClick = {
+                        val startMinute = parseTimeInput(startText)
+                        val endMinute = parseTimeInput(endText)
+                        val activeDays = parseDaysInput(daysText)
+                        if (startMinute != null && endMinute != null) {
+                            onUpdateSchedule(
+                                schedule.id,
+                                name,
+                                activeDays,
+                                startMinute,
+                                endMinute,
+                                enabled
+                            )
+                        }
+                    },
+                    contentPadding = PaddingValues(horizontal = 18.dp, vertical = 12.dp)
+                ) {
+                    Text("Save")
+                }
+            }
+
+            Text(
+                "${formatDays(schedule.activeDays)}  •  ${formatMinute(schedule.startMinuteOfDay)} - ${formatMinute(schedule.endMinuteOfDay)}",
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+    }
+}
+
+private fun parseDaysInput(input: String): Set<Int> {
+    val tokens = input.split(',', ' ', ';')
+        .map { it.trim().lowercase() }
+        .filter { it.isNotBlank() }
+
+    val dayMap = mapOf(
+        "sun" to 1,
+        "sunday" to 1,
+        "mon" to 2,
+        "monday" to 2,
+        "tue" to 3,
+        "tues" to 3,
+        "tuesday" to 3,
+        "wed" to 4,
+        "wednesday" to 4,
+        "thu" to 5,
+        "thur" to 5,
+        "thurs" to 5,
+        "thursday" to 5,
+        "fri" to 6,
+        "friday" to 6,
+        "sat" to 7,
+        "saturday" to 7
+    )
+
+    return buildSet {
+        tokens.forEach { token ->
+            token.toIntOrNull()?.takeIf { it in 1..7 }?.let(::add)
+                ?: dayMap[token]?.let(::add)
+        }
+    }
+}
+
+private fun formatDaysInput(days: Set<Int>): String {
+    val names = mapOf(
+        1 to "Sun",
+        2 to "Mon",
+        3 to "Tue",
+        4 to "Wed",
+        5 to "Thu",
+        6 to "Fri",
+        7 to "Sat"
+    )
+    return days.sorted().joinToString(separator = ",") { names[it] ?: it.toString() }
+}
+
+private fun parseTimeInput(input: String): Int? {
+    val normalized = input.trim().uppercase()
+    val am = normalized.endsWith("AM")
+    val pm = normalized.endsWith("PM")
+    val raw = normalized.removeSuffix("AM").removeSuffix("PM").trim()
+    val parts = raw.split(':')
+    if (parts.size != 2) return null
+
+    val hour = parts[0].toIntOrNull() ?: return null
+    val minute = parts[1].toIntOrNull() ?: return null
+    if (minute !in 0..59) return null
+
+    val normalizedHour = when {
+        am || pm -> {
+            if (hour !in 1..12) return null
+            when {
+                hour == 12 && am -> 0
+                hour == 12 && pm -> 12
+                pm -> hour + 12
+                else -> hour
+            }
+        }
+        else -> {
+            if (hour !in 0..23) return null
+            hour
+        }
+    }
+    return normalizedHour * 60 + minute
 }
 
 @Composable
@@ -796,11 +2473,30 @@ private fun DecisionLogSection(
     logs: List<Decision>,
     onClear: () -> Unit
 ) {
+    var selectedWindow by remember { mutableStateOf(ActivityWindow.Today) }
+    var selectedFilter by remember { mutableStateOf(DecisionFilter.All) }
+    val now = System.currentTimeMillis()
+    val visibleLogs = logs
+        .filter { isWithinActivityWindow(it.timestampMillis, selectedWindow, now) }
+        .sortedByDescending { it.timestampMillis }
+    val total = visibleLogs.size
+    val blocked = visibleLogs.count { !it.allow }
+    val allowed = visibleLogs.count { it.allow }
+    val series = buildActivitySeries(visibleLogs, selectedWindow, now)
+    val chartTitle = when (selectedWindow) {
+        ActivityWindow.Today -> "Blocked Requests / Hour"
+        ActivityWindow.SevenDays -> "Blocked Requests / Day"
+        ActivityWindow.ThirtyDays -> "Blocked Requests / Day"
+    }
+    val listLogs = when (selectedFilter) {
+        DecisionFilter.All -> visibleLogs
+        DecisionFilter.Blocked -> visibleLogs.filter { !it.allow }
+        DecisionFilter.Allowed -> visibleLogs.filter { it.allow }
+    }
+
     Card(
         shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        )
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -812,54 +2508,324 @@ private fun DecisionLogSection(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column {
-                    Text("Recent decisions", style = MaterialTheme.typography.titleMedium)
-                    Text("Latest local block and allow events", style = MaterialTheme.typography.bodySmall)
+                    Text("Activity Log", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        when (selectedWindow) {
+                            ActivityWindow.Today -> "$total DNS decisions today"
+                            ActivityWindow.SevenDays -> "$total DNS decisions in 7 days"
+                            ActivityWindow.ThirtyDays -> "$total DNS decisions in 30 days"
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
-                TextButton(onClick = onClear) {
-                    Text("Clear")
-                }
-            }
-
-            if (logs.isEmpty()) {
-                Text("No recent decisions yet", style = MaterialTheme.typography.bodyMedium)
-            } else {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    logs.take(5).forEach { decision ->
-                        Card(
-                            shape = RoundedCornerShape(16.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant
-                            )
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(12.dp),
-                                verticalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        decision.domain,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                    Text(
-                                        if (decision.allow) "Allowed" else "Blocked",
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                }
-                                Text(decision.reason, style = MaterialTheme.typography.bodySmall)
-                                Text(
-                                    DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(decision.timestampMillis)),
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                            }
-                        }
+                Card(
+                    shape = RoundedCornerShape(999.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFD1FAE5))
+                ) {
+                    Box(
+                        modifier = Modifier.padding(10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.FlashOn,
+                            contentDescription = null,
+                            tint = Color(0xFF0F9D58)
+                        )
                     }
                 }
             }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                ActivityWindowChip(selected = selectedWindow == ActivityWindow.Today, label = "Today") { selectedWindow = ActivityWindow.Today }
+                ActivityWindowChip(selected = selectedWindow == ActivityWindow.SevenDays, label = "7 Days") { selectedWindow = ActivityWindow.SevenDays }
+                ActivityWindowChip(selected = selectedWindow == ActivityWindow.ThirtyDays, label = "30 Days") { selectedWindow = ActivityWindow.ThirtyDays }
+            }
+
+            Card(
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(chartTitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("6am - 6pm", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    ActivityLineChart(points = series)
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Summary", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text("Daily ▾", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                ActivitySummaryCard(modifier = Modifier.weight(1f), value = blocked.toString(), label = "Blocked\nToday", icon = Icons.Outlined.Block, accent = Color(0xFFFEE2E2), accentText = Color(0xFFE53935))
+                ActivitySummaryCard(modifier = Modifier.weight(1f), value = allowed.toString(), label = "Allowed\nToday", icon = Icons.Outlined.CheckCircleOutline, accent = Color(0xFFD1FAE5), accentText = Color(0xFF0F9D58))
+                ActivitySummaryCard(modifier = Modifier.weight(1f), value = total.toString(), label = "Total DNS\nToday", icon = Icons.Outlined.BarChart, accent = Color(0xFFF3F4F6), accentText = Color(0xFF1F2937))
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Decisions", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DecisionFilterChip(selected = selectedFilter == DecisionFilter.All, label = "All ($total)") { selectedFilter = DecisionFilter.All }
+                    DecisionFilterChip(selected = selectedFilter == DecisionFilter.Blocked, label = "Blocked ($blocked)") { selectedFilter = DecisionFilter.Blocked }
+                    DecisionFilterChip(selected = selectedFilter == DecisionFilter.Allowed, label = "Allowed ($allowed)") { selectedFilter = DecisionFilter.Allowed }
+                }
+            }
+
+            if (listLogs.isEmpty()) {
+                Text("No recent decisions yet", style = MaterialTheme.typography.bodyMedium)
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listLogs.take(8).forEach { decision ->
+                        ActivityDecisionRow(decision = decision)
+                    }
+                }
+            }
+
+            TextButton(onClick = onClear) {
+                Text("Clear")
+            }
         }
+    }
+}
+
+@Composable
+private fun ActivityWindowChip(
+    selected: Boolean,
+    label: String,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier.clickable(onClick = onClick),
+        shape = RoundedCornerShape(999.dp),
+        border = BorderStroke(1.dp, if (selected) Color(0xFF1D7A4A) else MaterialTheme.colorScheme.outlineVariant),
+        colors = CardDefaults.cardColors(
+            containerColor = if (selected) Color(0xFFE8F5EE) else MaterialTheme.colorScheme.surface
+        )
+    ) {
+        Text(
+            label,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            color = if (selected) Color(0xFF1D7A4A) else MaterialTheme.colorScheme.onSurfaceVariant,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+            style = MaterialTheme.typography.labelMedium
+        )
+    }
+}
+
+@Composable
+private fun DecisionFilterChip(
+    selected: Boolean,
+    label: String,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier.clickable(onClick = onClick),
+        shape = RoundedCornerShape(999.dp),
+        border = BorderStroke(1.dp, if (selected) Color(0xFF1D7A4A) else MaterialTheme.colorScheme.outlineVariant),
+        colors = CardDefaults.cardColors(
+            containerColor = if (selected) Color(0xFFE8F5EE) else MaterialTheme.colorScheme.surface
+        )
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            color = if (selected) Color(0xFF1D7A4A) else MaterialTheme.colorScheme.onSurfaceVariant,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+            style = MaterialTheme.typography.labelMedium
+        )
+    }
+}
+
+@Composable
+private fun ActivitySummaryCard(
+    modifier: Modifier = Modifier,
+    value: String,
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    accent: Color,
+    accentText: Color
+) {
+    Card(
+        modifier = modifier.height(96.dp),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Card(shape = RoundedCornerShape(10.dp), colors = CardDefaults.cardColors(containerColor = accent)) {
+                Box(modifier = Modifier.size(20.dp), contentAlignment = Alignment.Center) {
+                    Icon(imageVector = icon, contentDescription = null, tint = accentText)
+                }
+            }
+            Text(value, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun ActivityLineChart(points: List<ActivityPoint>) {
+    val lineColor = Color(0xFF1D7A4A)
+    val dotColor = Color(0xFF1D7A4A)
+    Canvas(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(150.dp)
+    ) {
+        if (points.isEmpty()) return@Canvas
+        val maxValue = points.maxOf { it.value }.coerceAtLeast(1)
+        val stepX = if (points.size <= 1) size.width else size.width / (points.size - 1)
+        val chartTop = 18f
+        val chartBottom = size.height - 24f
+        val usableHeight = (chartBottom - chartTop).coerceAtLeast(1f)
+        val mapped = points.mapIndexed { index, point ->
+            val x = index * stepX
+            val y = chartBottom - (point.value.toFloat() / maxValue.toFloat()) * usableHeight
+            x to y
+        }
+
+        val gridSteps = listOf(0.0f, 0.33f, 0.66f, 1.0f)
+        gridSteps.forEach { fraction ->
+            val y = chartBottom - usableHeight * fraction
+            drawLine(
+                color = Color(0xFFE5E7EB),
+                start = androidx.compose.ui.geometry.Offset(0f, y),
+                end = androidx.compose.ui.geometry.Offset(size.width, y),
+                strokeWidth = 1f
+            )
+        }
+
+        for (i in 0 until mapped.size - 1) {
+            val start = mapped[i]
+            val end = mapped[i + 1]
+            drawLine(
+                color = lineColor,
+                start = androidx.compose.ui.geometry.Offset(start.first, start.second),
+                end = androidx.compose.ui.geometry.Offset(end.first, end.second),
+                strokeWidth = 4f
+            )
+        }
+
+        mapped.forEach { point ->
+            drawCircle(
+                color = dotColor,
+                radius = 5f,
+                center = androidx.compose.ui.geometry.Offset(point.first, point.second)
+            )
+        }
+
+        val labelPositions = points.mapIndexedNotNull { index, point ->
+            if (point.label.isNotBlank()) index to point.label else null
+        }
+        labelPositions.forEach { (index, label) ->
+            val x = index * stepX
+            drawContext.canvas.nativeCanvas.apply {
+                drawText(
+                    label,
+                    x,
+                    size.height - 2f,
+                    android.graphics.Paint().apply {
+                        color = android.graphics.Color.parseColor("#6B7280")
+                        textSize = 24f
+                        isAntiAlias = true
+                        textAlign = android.graphics.Paint.Align.CENTER
+                    }
+                )
+            }
+        }
+    }
+}
+
+private data class ActivityPoint(val label: String, val value: Int)
+
+private enum class ActivityWindow {
+    Today,
+    SevenDays,
+    ThirtyDays
+}
+
+private enum class DecisionFilter {
+    All,
+    Blocked,
+    Allowed
+}
+
+private fun buildActivitySeries(
+    logs: List<Decision>,
+    window: ActivityWindow,
+    nowMillis: Long
+): List<ActivityPoint> {
+    return when (window) {
+        ActivityWindow.Today -> {
+            val buckets = (6..18).map { hour ->
+                val count = logs.count { decision ->
+                    if (!isSameDay(decision.timestampMillis, nowMillis)) return@count false
+                    val cal = Calendar.getInstance().apply { timeInMillis = decision.timestampMillis }
+                    cal.get(Calendar.HOUR_OF_DAY) == hour && !decision.allow
+                }
+                ActivityPoint(label = when (hour) {
+                    6 -> "6am"
+                    9 -> "9am"
+                    12 -> "12pm"
+                    15 -> "3pm"
+                    18 -> "6pm"
+                    else -> ""
+                }, value = count)
+            }
+            buckets
+        }
+        ActivityWindow.SevenDays -> {
+            (6 downTo 0).map { daysAgo ->
+                val start = nowMillis - daysAgo * 24L * 60L * 60L * 1000L
+                val end = start + 24L * 60L * 60L * 1000L
+                val count = logs.count { !it.allow && it.timestampMillis in start until end }
+                val label = when (daysAgo) {
+                    6 -> "Mon"
+                    5 -> "Tue"
+                    4 -> "Wed"
+                    3 -> "Thu"
+                    2 -> "Fri"
+                    1 -> "Sat"
+                    else -> "Sun"
+                }
+                ActivityPoint(label, count)
+            }
+        }
+        ActivityWindow.ThirtyDays -> {
+            val step = 5
+            (5 downTo 0).map { bucket ->
+                val end = nowMillis - bucket * step * 24L * 60L * 60L * 1000L
+                val start = end - step * 24L * 60L * 60L * 1000L
+                val count = logs.count { !it.allow && it.timestampMillis in start until end }
+                ActivityPoint(label = if (bucket == 0) "Now" else "${bucket * step}d", value = count)
+            }
+        }
+    }
+}
+
+private fun isWithinActivityWindow(timestampMillis: Long, window: ActivityWindow, nowMillis: Long): Boolean {
+    return when (window) {
+        ActivityWindow.Today -> isSameDay(timestampMillis, nowMillis)
+        ActivityWindow.SevenDays -> timestampMillis >= nowMillis - 7L * 24L * 60L * 60L * 1000L
+        ActivityWindow.ThirtyDays -> timestampMillis >= nowMillis - 30L * 24L * 60L * 60L * 1000L
     }
 }
 
@@ -886,4 +2852,45 @@ private fun formatMinute(minuteOfDay: Int): String {
         else -> hours
     }
     return "%02d:%02d %s".format(displayHour, minutes, suffix)
+}
+
+@Composable
+private fun ActivityDecisionRow(decision: Decision) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Card(
+            shape = RoundedCornerShape(10.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = if (decision.allow) Color(0xFFD1FAE5) else Color(0xFFFEE2E2)
+            )
+        ) {
+            Box(
+                modifier = Modifier.size(32.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = if (decision.allow) Icons.Outlined.Home else Icons.Outlined.Shield,
+                    contentDescription = null,
+                    tint = if (decision.allow) Color(0xFF0F9D58) else Color(0xFFE53935),
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(decision.domain, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+            Text(decision.reason, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+
+        Text(
+            text = formatRelativeTime(decision.timestampMillis),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
 }
