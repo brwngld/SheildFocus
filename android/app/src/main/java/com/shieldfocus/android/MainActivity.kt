@@ -221,8 +221,8 @@ class MainActivity : ComponentActivity() {
                     onAssignScheduleToCategory = { categoryId, scheduleName ->
                         updateCategories(protectionStore.assignScheduleToCategory(categoryId, scheduleName))
                     },
-                    onAddSchedule = { name ->
-                        updateSchedules(protectionStore.addSchedule(name))
+                    onAddSchedule = { name, activeDays, startMinute, endMinute ->
+                        updateSchedules(protectionStore.addSchedule(name, activeDays, startMinute, endMinute))
                     },
                     onRemoveSchedule = { scheduleId ->
                         updateSchedules(protectionStore.removeSchedule(scheduleId))

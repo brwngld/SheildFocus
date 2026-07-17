@@ -129,7 +129,7 @@ fun ShieldFocusApp(
     onAddDomainToCategory: (String, String) -> Unit,
     onRemoveDomainFromCategory: (String, String) -> Unit,
     onAssignScheduleToCategory: (String, String) -> Unit,
-    onAddSchedule: (String) -> Unit,
+    onAddSchedule: (String, Set<Int>, Int, Int) -> Unit,
     onRemoveSchedule: (String) -> Unit,
     onUpdateSchedule: (String, String, Set<Int>, Int, Int, Boolean) -> Unit,
     onExportBackup: () -> String,
@@ -254,13 +254,7 @@ fun ShieldFocusApp(
                     inputValue = scheduleInput,
                     onInputChange = { scheduleInput = it },
                     onBack = { secondaryPage = schedulesReturnPage },
-                    onSubmit = {
-                        val value = scheduleInput.trim()
-                        if (value.isNotEmpty()) {
-                            onAddSchedule(value)
-                            scheduleInput = ""
-                        }
-                    },
+                    onCreateSchedule = onAddSchedule,
                     onRemoveSchedule = onRemoveSchedule,
                     onUpdateSchedule = onUpdateSchedule
                 )
@@ -326,7 +320,7 @@ fun ShieldFocusApp(
                         onCreateSchedule = {
                             val value = scheduleInput.trim()
                             if (value.isNotEmpty()) {
-                                onAddSchedule(value)
+                                onAddSchedule(value, setOf(2, 3, 4, 5, 6), 9 * 60, 17 * 60)
                                 scheduleInput = ""
                             }
                         },
@@ -2746,7 +2740,7 @@ private fun ScheduleSectionEditor(
     schedules: List<BlockingSchedule>,
     inputValue: String,
     onInputChange: (String) -> Unit,
-    onSubmit: () -> Unit,
+    onAdd: () -> Unit,
     onRemoveSchedule: (String) -> Unit,
     onUpdateSchedule: (String, String, Set<Int>, Int, Int, Boolean) -> Unit
 ) {
@@ -2766,11 +2760,11 @@ private fun ScheduleSectionEditor(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column {
-                    Text("Create schedule", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text("Add a new protection time window", style = MaterialTheme.typography.bodySmall)
+                    Text("Your schedules", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("Search or add a protection time window", style = MaterialTheme.typography.bodySmall)
                 }
                 Button(
-                    onClick = onSubmit,
+                    onClick = onAdd,
                     contentPadding = PaddingValues(horizontal = 18.dp, vertical = 12.dp)
                 ) {
                     Text("Add")
@@ -2783,15 +2777,17 @@ private fun ScheduleSectionEditor(
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 shape = RoundedCornerShape(18.dp),
-                placeholder = { Text("e.g. Work Hours") }
+                leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
+                placeholder = { Text("Search schedules...") }
             )
 
-            if (schedules.isEmpty()) {
-                Text("No schedules yet", style = MaterialTheme.typography.bodyMedium)
+            val filteredSchedules = schedules.filter { it.name.contains(inputValue, ignoreCase = true) }
+            if (filteredSchedules.isEmpty()) {
+                Text(if (schedules.isEmpty()) "No schedules yet" else "No matching schedules", style = MaterialTheme.typography.bodyMedium)
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    schedules.forEach { schedule ->
-                        EditableScheduleCard(
+                    filteredSchedules.forEach { schedule ->
+                        SwipeDeleteScheduleCard(
                             schedule = schedule,
                             onRemoveSchedule = onRemoveSchedule,
                             onUpdateSchedule = onUpdateSchedule
@@ -2803,16 +2799,19 @@ private fun ScheduleSectionEditor(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SchedulesPageContent(
     schedules: List<BlockingSchedule>,
     inputValue: String,
     onInputChange: (String) -> Unit,
     onBack: () -> Unit,
-    onSubmit: () -> Unit,
+    onCreateSchedule: (String, Set<Int>, Int, Int) -> Unit,
     onRemoveSchedule: (String) -> Unit,
     onUpdateSchedule: (String, String, Set<Int>, Int, Int, Boolean) -> Unit
 ) {
+    var showAddSheet by remember { mutableStateOf(false) }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         PageHeader(
             title = "Schedules",
@@ -2823,10 +2822,277 @@ private fun SchedulesPageContent(
             schedules = schedules,
             inputValue = inputValue,
             onInputChange = onInputChange,
-            onSubmit = onSubmit,
+            onAdd = { showAddSheet = true },
             onRemoveSchedule = onRemoveSchedule,
             onUpdateSchedule = onUpdateSchedule
         )
+    }
+    if (showAddSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showAddSheet = false },
+            sheetState = sheetState
+        ) {
+            AddScheduleSheet(
+                onCancel = { showAddSheet = false },
+                onCreate = { name, days, start, end ->
+                    onCreateSchedule(name, days, start, end)
+                    showAddSheet = false
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun AddScheduleSheet(
+    onCancel: () -> Unit,
+    onCreate: (String, Set<Int>, Int, Int) -> Unit,
+    initialSchedule: BlockingSchedule? = null
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var name by remember(initialSchedule?.id) { mutableStateOf(initialSchedule?.name.orEmpty()) }
+    var selectedDays by remember(initialSchedule?.id) { mutableStateOf(initialSchedule?.activeDays ?: setOf(2, 3, 4, 5, 6)) }
+    var startMinute by remember(initialSchedule?.id) { mutableStateOf(initialSchedule?.startMinuteOfDay ?: 9 * 60) }
+    var endMinute by remember(initialSchedule?.id) { mutableStateOf(initialSchedule?.endMinuteOfDay ?: 17 * 60) }
+
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 22.dp).padding(bottom = 28.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Text(if (initialSchedule == null) "New Schedule" else "Edit Schedule", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Text("Name", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                placeholder = { Text("e.g. Work Hours") }
+            )
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Active Days", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                scheduleDayOptions().forEach { (day, label) ->
+                    ScheduleDayChip(
+                        label = label,
+                        selected = day in selectedDays,
+                        onClick = {
+                            selectedDays = if (day in selectedDays) selectedDays - day else selectedDays + day
+                        }
+                    )
+                }
+            }
+        }
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            ScheduleTimeField(
+                modifier = Modifier.weight(1f),
+                label = "Start Time",
+                minuteOfDay = startMinute,
+                onClick = {
+                    showTimePicker(context, startMinute) { startMinute = it }
+                }
+            )
+            ScheduleTimeField(
+                modifier = Modifier.weight(1f),
+                label = "End Time",
+                minuteOfDay = endMinute,
+                onClick = {
+                    showTimePicker(context, endMinute) { endMinute = it }
+                }
+            )
+        }
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            Button(
+                onClick = onCancel,
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE53935))
+            ) { Text("Cancel") }
+            Spacer(Modifier.width(10.dp))
+            Button(
+                onClick = { onCreate(name.trim(), selectedDays, startMinute, endMinute) },
+                enabled = name.isNotBlank() && selectedDays.isNotEmpty(),
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF19784F))
+            ) { Text(if (initialSchedule == null) "Create" else "Save") }
+        }
+    }
+}
+
+private fun scheduleDayOptions() = listOf(
+    1 to "Sun", 2 to "Mon", 3 to "Tue", 4 to "Wed", 5 to "Thu", 6 to "Fri", 7 to "Sat"
+)
+
+@Composable
+private fun ScheduleDayChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    Card(
+        modifier = Modifier.noRippleClickable(onClick),
+        shape = RoundedCornerShape(5.dp),
+        border = if (selected) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        colors = CardDefaults.cardColors(containerColor = if (selected) Color(0xFF19784F) else Color.White)
+    ) {
+        Text(
+            label,
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 8.dp),
+            color = if (selected) Color.White else MaterialTheme.colorScheme.onSurface,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
+}
+
+@Composable
+private fun ScheduleTimeField(
+    modifier: Modifier,
+    label: String,
+    minuteOfDay: Int,
+    onClick: () -> Unit
+) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        Text(label, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+        Card(
+            modifier = Modifier.fillMaxWidth().noRippleClickable(onClick),
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            colors = CardDefaults.cardColors(containerColor = Color.White)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 15.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(formatMinute(minuteOfDay), fontWeight = FontWeight.Medium, fontSize = 13.sp)
+                Icon(Icons.Outlined.Schedule, null, modifier = Modifier.size(17.dp), tint = Color(0xFF4B5563))
+            }
+        }
+    }
+}
+
+private fun showTimePicker(context: android.content.Context, initialMinute: Int, onPicked: (Int) -> Unit) {
+    android.app.TimePickerDialog(
+        context,
+        { _, hour, minute -> onPicked(hour * 60 + minute) },
+        initialMinute / 60,
+        initialMinute % 60,
+        false
+    ).show()
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SwipeDeleteScheduleCard(
+    schedule: BlockingSchedule,
+    onRemoveSchedule: (String) -> Unit,
+    onUpdateSchedule: (String, String, Set<Int>, Int, Int, Boolean) -> Unit
+) {
+    var showEditSheet by remember(schedule.id) { mutableStateOf(false) }
+    val editSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            if (value == SwipeToDismissBoxValue.EndToStart) {
+                onRemoveSchedule(schedule.id)
+                true
+            } else false
+        }
+    )
+    SwipeToDismissBox(
+        state = dismissState,
+        enableDismissFromStartToEnd = false,
+        enableDismissFromEndToStart = true,
+        backgroundContent = {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xFFFFDEDF), RoundedCornerShape(12.dp))
+                    .padding(end = 23.dp),
+                contentAlignment = Alignment.CenterEnd
+            ) {
+                Icon(Icons.Outlined.Delete, "Delete ${schedule.name}", tint = Color(0xFFEA2F36), modifier = Modifier.size(22.dp))
+            }
+        }
+    ) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, Color(0xFFE1E5E8)),
+            colors = CardDefaults.cardColors(containerColor = if (schedule.enabled) Color.White else Color(0xFFF8F9FA))
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Card(shape = RoundedCornerShape(8.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFDDF6E9))) {
+                    Box(modifier = Modifier.size(38.dp), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Outlined.Schedule, null, tint = Color(0xFF16835A), modifier = Modifier.size(20.dp))
+                    }
+                }
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(
+                        schedule.name,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (schedule.enabled) Color(0xFF374151) else Color(0xFF9AA3B2)
+                    )
+                    Text(
+                        "${formatDays(schedule.activeDays)}  ·  ${formatMinute(schedule.startMinuteOfDay)} - ${formatMinute(schedule.endMinuteOfDay)}",
+                        fontSize = 11.sp,
+                        color = Color(0xFF9AA3B2),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Card(
+                    modifier = Modifier.noRippleClickable { showEditSheet = true },
+                    shape = RoundedCornerShape(7.dp),
+                    border = BorderStroke(1.dp, Color(0xFFDDE2E7)),
+                    colors = CardDefaults.cardColors(containerColor = Color.White)
+                ) {
+                    Icon(
+                        Icons.Outlined.Edit,
+                        "Edit ${schedule.name}",
+                        tint = Color(0xFF16835A),
+                        modifier = Modifier.padding(8.dp).size(17.dp)
+                    )
+                }
+                Switch(
+                    checked = schedule.enabled,
+                    onCheckedChange = { enabled ->
+                        onUpdateSchedule(
+                            schedule.id,
+                            schedule.name,
+                            schedule.activeDays,
+                            schedule.startMinuteOfDay,
+                            schedule.endMinuteOfDay,
+                            enabled
+                        )
+                    },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color(0xFF147A51),
+                        checkedTrackColor = Color(0xFFCFF8E3),
+                        uncheckedThumbColor = Color.White,
+                        uncheckedTrackColor = Color(0xFFE4E7ED),
+                        uncheckedBorderColor = Color.Transparent
+                    )
+                )
+            }
+        }
+    }
+    if (showEditSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showEditSheet = false },
+            sheetState = editSheetState
+        ) {
+            AddScheduleSheet(
+                initialSchedule = schedule,
+                onCancel = { showEditSheet = false },
+                onCreate = { name, days, start, end ->
+                    onUpdateSchedule(schedule.id, name, days, start, end, schedule.enabled)
+                    showEditSheet = false
+                }
+            )
+        }
     }
 }
 
@@ -2836,10 +3102,11 @@ private fun EditableScheduleCard(
     onRemoveSchedule: (String) -> Unit,
     onUpdateSchedule: (String, String, Set<Int>, Int, Int, Boolean) -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     var name by remember(schedule.id) { mutableStateOf(schedule.name) }
-    var startText by remember(schedule.id) { mutableStateOf(formatMinute(schedule.startMinuteOfDay)) }
-    var endText by remember(schedule.id) { mutableStateOf(formatMinute(schedule.endMinuteOfDay)) }
-    var daysText by remember(schedule.id) { mutableStateOf(formatDaysInput(schedule.activeDays)) }
+    var startMinute by remember(schedule.id) { mutableStateOf(schedule.startMinuteOfDay) }
+    var endMinute by remember(schedule.id) { mutableStateOf(schedule.endMinuteOfDay) }
+    var activeDays by remember(schedule.id) { mutableStateOf(schedule.activeDays) }
     var enabled by remember(schedule.id) { mutableStateOf(schedule.enabled) }
 
     Card(
@@ -2880,35 +3147,30 @@ private fun EditableScheduleCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                OutlinedTextField(
-                    value = startText,
-                    onValueChange = { startText = it },
+                ScheduleTimeField(
                     modifier = Modifier.weight(1f),
-                    singleLine = true,
-                    shape = RoundedCornerShape(18.dp),
-                    label = { Text("Start") },
-                    placeholder = { Text("09:00 AM") }
+                    label = "Start Time",
+                    minuteOfDay = startMinute,
+                    onClick = { showTimePicker(context, startMinute) { startMinute = it } }
                 )
-                OutlinedTextField(
-                    value = endText,
-                    onValueChange = { endText = it },
+                ScheduleTimeField(
                     modifier = Modifier.weight(1f),
-                    singleLine = true,
-                    shape = RoundedCornerShape(18.dp),
-                    label = { Text("End") },
-                    placeholder = { Text("05:00 PM") }
+                    label = "End Time",
+                    minuteOfDay = endMinute,
+                    onClick = { showTimePicker(context, endMinute) { endMinute = it } }
                 )
             }
 
-            OutlinedTextField(
-                value = daysText,
-                onValueChange = { daysText = it },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                shape = RoundedCornerShape(18.dp),
-                label = { Text("Days") },
-                placeholder = { Text("Mon,Tue,Wed,Thu,Fri") }
-            )
+            Text("Active Days", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                scheduleDayOptions().forEach { (day, label) ->
+                    ScheduleDayChip(
+                        label = label,
+                        selected = day in activeDays,
+                        onClick = { activeDays = if (day in activeDays) activeDays - day else activeDays + day }
+                    )
+                }
+            }
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -2920,10 +3182,7 @@ private fun EditableScheduleCard(
                 }
                 Button(
                     onClick = {
-                        val startMinute = parseTimeInput(startText)
-                        val endMinute = parseTimeInput(endText)
-                        val activeDays = parseDaysInput(daysText)
-                        if (startMinute != null && endMinute != null) {
+                        if (name.isNotBlank() && activeDays.isNotEmpty()) {
                             onUpdateSchedule(
                                 schedule.id,
                                 name,

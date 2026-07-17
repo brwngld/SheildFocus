@@ -247,7 +247,12 @@ class ProtectionStore(context: Context) {
         return next
     }
 
-    fun addSchedule(name: String): List<BlockingSchedule> {
+    fun addSchedule(
+        name: String,
+        activeDays: Set<Int> = DEFAULT_SCHEDULE_DAYS,
+        startMinuteOfDay: Int = 9 * 60,
+        endMinuteOfDay: Int = 17 * 60
+    ): List<BlockingSchedule> {
         val next = loadSchedules().toMutableList()
         val normalizedName = name.trim()
         if (normalizedName.isBlank()) return next
@@ -255,9 +260,9 @@ class ProtectionStore(context: Context) {
         val schedule = BlockingSchedule(
             id = UUID.randomUUID().toString(),
             name = normalizedName,
-            activeDays = DEFAULT_SCHEDULE_DAYS,
-            startMinuteOfDay = 9 * 60,
-            endMinuteOfDay = 17 * 60,
+            activeDays = activeDays,
+            startMinuteOfDay = startMinuteOfDay,
+            endMinuteOfDay = endMinuteOfDay,
             enabled = true
         )
         next.add(schedule)
