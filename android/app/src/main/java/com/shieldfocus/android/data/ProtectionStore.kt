@@ -35,6 +35,8 @@ private val KEY_ALLOWED_DOMAINS = stringSetPreferencesKey("allowed_domains")
 private val KEY_CATEGORIES = stringPreferencesKey("blocking_categories")
 private val KEY_SCHEDULES = stringPreferencesKey("blocking_schedules")
 private val KEY_DECISION_LOGS = stringPreferencesKey("decision_logs")
+private val KEY_IMPORTED_PRESETS = stringSetPreferencesKey("imported_blocklist_presets")
+private val KEY_ACTIVE_PRESET_CATEGORIES = stringSetPreferencesKey("active_blocklist_categories")
 
 private val CATEGORY_COLORS = listOf(
     "#6671FF",
@@ -109,6 +111,23 @@ class ProtectionStore(context: Context) {
 
     fun loadDecisionHistory(): List<Decision> = runBlocking {
         decodeDecisionHistory(dataStore.data.first()[KEY_DECISION_LOGS].orEmpty())
+    }
+
+    fun loadImportedPresetIds(): Set<String> = runBlocking {
+        dataStore.data.first()[KEY_IMPORTED_PRESETS] ?: setOf("shieldfocus-default")
+    }
+
+    fun saveImportedPresetIds(ids: Set<String>) = runBlocking {
+        dataStore.edit { it[KEY_IMPORTED_PRESETS] = ids }
+    }
+
+    fun loadActivePresetCategoryIds(): Set<String> = runBlocking {
+        dataStore.data.first()[KEY_ACTIVE_PRESET_CATEGORIES]
+            ?: setOf("adult-content", "malware-phishing", "gambling")
+    }
+
+    fun saveActivePresetCategoryIds(ids: Set<String>) = runBlocking {
+        dataStore.edit { it[KEY_ACTIVE_PRESET_CATEGORIES] = ids }
     }
 
     fun saveBlockedDomains(domains: Set<String>) = runBlocking {

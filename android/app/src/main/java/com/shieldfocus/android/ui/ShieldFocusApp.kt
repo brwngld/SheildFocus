@@ -115,6 +115,8 @@ fun ShieldFocusApp(
     categories: List<BlockingCategory>,
     schedules: List<BlockingSchedule>,
     decisionLogs: List<Decision>,
+    importedPresetIds: Set<String>,
+    activePresetCategoryIds: Set<String>,
     onProtectionToggle: (Boolean) -> Unit,
     onStrictModeToggle: (Boolean) -> Unit,
     onAutoStartToggle: (Boolean) -> Unit,
@@ -130,6 +132,8 @@ fun ShieldFocusApp(
     onRemoveDomainFromCategory: (String, String) -> Unit,
     onAssignScheduleToCategory: (String, String) -> Unit,
     onAddSchedule: (String, Set<Int>, Int, Int) -> Unit,
+    onImportedPresetIdsChange: (Set<String>) -> Unit,
+    onActivePresetCategoryIdsChange: (Set<String>) -> Unit,
     onRemoveSchedule: (String) -> Unit,
     onUpdateSchedule: (String, String, Set<Int>, Int, Int, Boolean) -> Unit,
     onExportBackup: () -> String,
@@ -302,6 +306,10 @@ fun ShieldFocusApp(
                     BlockListTabContent(
                         categories = categories,
                         schedules = schedules,
+                        importedPresetIds = importedPresetIds,
+                        activeCategoryIds = activePresetCategoryIds,
+                        onImportedPresetIdsChange = onImportedPresetIdsChange,
+                        onActiveCategoryIdsChange = onActivePresetCategoryIdsChange,
                         categoryInput = categoryInput,
                         onCategoryInputChange = { categoryInput = it },
                         onCreateCategory = {
@@ -1228,6 +1236,10 @@ private fun rulesIconStyle(rule: RulesDisplayItem): Triple<Color, Color, android
 private fun BlockListTabContent(
     categories: List<BlockingCategory>,
     schedules: List<BlockingSchedule>,
+    importedPresetIds: Set<String>,
+    activeCategoryIds: Set<String>,
+    onImportedPresetIdsChange: (Set<String>) -> Unit,
+    onActiveCategoryIdsChange: (Set<String>) -> Unit,
     categoryInput: String,
     onCategoryInputChange: (String) -> Unit,
     onCreateCategory: () -> Unit,
@@ -1256,10 +1268,13 @@ private fun BlockListTabContent(
     var selectedSection by remember { mutableStateOf(BlocklistSection.DefaultLists) }
     val defaultPresets = defaultBlocklistPresetsClean()
     val categoryPresets = defaultCategoryPresetsClean()
-    var importedPresetIds by remember { mutableStateOf(setOf(defaultPresets.first().id)) }
-    var enabledPresetIds by remember { mutableStateOf(setOf(defaultPresets.first().id)) }
-    var activeCategoryIds by remember { mutableStateOf(setOf("ad-networks", "trackers", "malware-phishing")) }
-    val activeBlockedCount = blockedDomains.size + activeCategoryIds.size
+    val actualCategoryDomainCounts = categoryPresets.associate { preset ->
+        val storedCategory = categories.firstOrNull { category ->
+            category.id == preset.id || category.name.equals(preset.name, ignoreCase = true)
+        }
+        preset.id to (storedCategory?.domains?.distinct()?.size ?: 0)
+    }
+    val activeBlockedCount = blockedDomains.distinct().size + activeCategoryIds.sumOf { actualCategoryDomainCounts[it] ?: 0 }
     val activeCategoryCount = activeCategoryIds.size
 
     Box(
@@ -1339,20 +1354,23 @@ private fun BlockListTabContent(
 
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         defaultPresets.forEach { preset ->
+                            val enabled = preset.categoryIds.any { it in activeCategoryIds }
+                            val domainCount = preset.categoryIds.sumOf { actualCategoryDomainCounts[it] ?: 0 }
                             BlocklistPresetCard(
-                                preset = preset,
+                                preset = preset.copy(meta = "${compactCount(domainCount)} domains - Category bundle"),
                                 imported = preset.id in importedPresetIds,
-                                enabled = preset.id in enabledPresetIds,
+                                enabled = enabled,
+                                activeCategoryIds = activeCategoryIds,
                                 onImport = {
-                                    importedPresetIds = importedPresetIds + preset.id
-                                    enabledPresetIds = enabledPresetIds + preset.id
+                                    onImportedPresetIdsChange(importedPresetIds + preset.id)
+                                    onActiveCategoryIdsChange(activeCategoryIds + preset.categoryIds)
                                 },
                                 onEnabledChange = { enabled ->
-                                    enabledPresetIds = if (enabled) {
-                                        enabledPresetIds + preset.id
+                                    onActiveCategoryIdsChange(if (enabled) {
+                                        activeCategoryIds + preset.categoryIds
                                     } else {
-                                        enabledPresetIds - preset.id
-                                    }
+                                        activeCategoryIds - preset.categoryIds
+                                    })
                                 }
                             )
                         }
@@ -1370,14 +1388,16 @@ private fun BlockListTabContent(
                         categoryPresets.forEach { preset ->
                             val checked = activeCategoryIds.contains(preset.id)
                             CategoryPresetCard(
-                                preset = preset,
+                                preset = preset.copy(
+                                    meta = "${compactCount(actualCategoryDomainCounts[preset.id] ?: 0)} domains - ${preset.meta.substringAfter(" - ", preset.meta)}"
+                                ),
                                 checked = checked,
                                 onCheckedChange = { enabled ->
-                                    activeCategoryIds = if (enabled) {
+                                    onActiveCategoryIdsChange(if (enabled) {
                                         activeCategoryIds + preset.id
                                     } else {
                                         activeCategoryIds - preset.id
-                                    }
+                                    })
                                 }
                             )
                         }
@@ -1479,6 +1499,7 @@ private fun BlocklistPresetCard(
     preset: BlocklistPreset,
     imported: Boolean,
     enabled: Boolean,
+    activeCategoryIds: Set<String>,
     onImport: () -> Unit,
     onEnabledChange: (Boolean) -> Unit
 ) {
@@ -1575,7 +1596,12 @@ private fun BlocklistPresetCard(
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 preset.tags.forEach { tag ->
-                    val tagColors = blocklistTagColors(tag)
+                    val categoryId = categoryIdForBlocklistTag(tag)
+                    val tagColors = if (categoryId != null && categoryId !in activeCategoryIds) {
+                        Color(0xFFF0F1F3) to Color(0xFF8D96A6)
+                    } else {
+                        blocklistTagColors(tag)
+                    }
                     Card(
                         shape = RoundedCornerShape(4.dp),
                         border = BorderStroke(1.dp, tagColors.second.copy(alpha = 0.22f)),
@@ -1619,6 +1645,20 @@ private fun BlocklistPresetCard(
             }
         }
     }
+}
+
+private fun categoryIdForBlocklistTag(tag: String): String? = when (tag.lowercase()) {
+    "adult" -> "adult-content"
+    "malware", "security", "phishing" -> "malware-phishing"
+    "gambling" -> "gambling"
+    "ads" -> "ad-networks"
+    "trackers" -> "trackers"
+    "telemetry" -> "telemetry"
+    "social" -> "social-media"
+    "cryptomining" -> "cryptomining"
+    "violence" -> "violence"
+    "youtube" -> "youtube"
+    else -> null
 }
 
 @Composable
@@ -1696,7 +1736,8 @@ private data class BlocklistPreset(
     val tags: List<String>,
     val accentColor: Color,
     val icon: androidx.compose.ui.graphics.vector.ImageVector,
-    val recommended: Boolean = false
+    val recommended: Boolean = false,
+    val categoryIds: Set<String> = emptySet()
 )
 
 private data class CategoryPreset(
@@ -1705,7 +1746,8 @@ private data class CategoryPreset(
     val meta: String,
     val description: String,
     val accentColor: Color,
-    val icon: androidx.compose.ui.graphics.vector.ImageVector
+    val icon: androidx.compose.ui.graphics.vector.ImageVector,
+    val domainCount: Int = 0
 )
 
 private fun defaultBlocklistPresets(): List<BlocklistPreset> {
@@ -1721,11 +1763,31 @@ private fun defaultBlocklistPresets(): List<BlocklistPreset> {
             recommended = true
         ),
         BlocklistPreset(
+            id = "family-protection",
+            name = "Family Protection",
+            meta = "0 domains - Category bundle",
+            description = "Family-focused protection against adult content, gambling, and violent material.",
+            tags = listOf("Adult", "Gambling", "Violence"),
+            accentColor = Color(0xFFDB2777),
+            icon = Icons.Outlined.Shield,
+            categoryIds = setOf("adult-content", "gambling", "violence")
+        ),
+        BlocklistPreset(
+            id = "kids-mode",
+            name = "Kids Mode",
+            meta = "0 domains - Category bundle",
+            description = "Child-friendly filtering for adult content, social media, and YouTube.",
+            tags = listOf("Adult", "Social", "YouTube"),
+            accentColor = Color(0xFF2563EB),
+            icon = Icons.Outlined.People,
+            categoryIds = setOf("adult-content", "social-media", "youtube")
+        ),
+        BlocklistPreset(
             id = "hagezi-pro",
             name = "Hagezi Pro",
             meta = "49k domains · Updated Jul 14, 2026",
-            description = "High-quality multi-purpose blocklist maintained by the community. Balanced coverage for ads, trackers, and telemetry.",
-            tags = listOf("Ads", "Trackers", "Telemetry"),
+            description = "High-quality multi-purpose protection for ads, trackers, and malware.",
+            tags = listOf("Ads", "Trackers", "Malware"),
             accentColor = Color(0xFF2563EB),
             icon = Icons.Outlined.FlashOn
         ),
@@ -1834,8 +1896,10 @@ private fun blocklistTagColors(tag: String): Pair<Color, Color> = when (tag.lowe
     "phishing", "security" -> Color(0xFFFFE7E7) to Color(0xFFDC2626)
     "social" -> Color(0xFFE7F0FF) to Color(0xFF2563EB)
     "telemetry" -> Color(0xFFE0F6F0) to Color(0xFF159A76)
-    "adult" -> Color(0xFFFFE8F1) to Color(0xFFDB2777)
-    "gambling" -> Color(0xFFFFE6F0) to Color(0xFFE23D7D)
+    "adult" -> Color(0xFFF1E8FF) to Color(0xFF7C3AED)
+    "gambling" -> Color(0xFFFFF0D9) to Color(0xFFD97706)
+    "violence" -> Color(0xFFFFE2E2) to Color(0xFFDC2626)
+    "youtube" -> Color(0xFFFFE5E5) to Color(0xFFEF3438)
     else -> Color(0xFFE8EEF5) to Color(0xFF64748B)
 }
 
@@ -1844,30 +1908,53 @@ private fun defaultBlocklistPresetsClean(): List<BlocklistPreset> {
         BlocklistPreset(
             id = "shieldfocus-default",
             name = "ShieldFocus Default",
-            meta = "10k domains - Updated Jul 15, 2026",
-            description = "Curated list covering ads, trackers, and known malware domains. Best starting point for most users.",
-            tags = listOf("Ads", "Trackers", "Malware"),
+            meta = "6k domains - Category bundle",
+            description = "Recommended protection against adult content, malicious websites, phishing, and gambling.",
+            tags = listOf("Adult", "Malware", "Gambling"),
             accentColor = Color(0xFF1D7A4A),
             icon = Icons.Outlined.Shield,
-            recommended = true
+            recommended = true,
+            categoryIds = setOf("adult-content", "malware-phishing", "gambling")
+        ),
+        BlocklistPreset(
+            id = "family-protection",
+            name = "Family Protection",
+            meta = "0 domains - Category bundle",
+            description = "Family-focused protection against adult content, gambling, and violent material.",
+            tags = listOf("Adult", "Gambling", "Violence"),
+            accentColor = Color(0xFFDB2777),
+            icon = Icons.Outlined.Shield,
+            categoryIds = setOf("adult-content", "gambling", "violence")
+        ),
+        BlocklistPreset(
+            id = "kids-mode",
+            name = "Kids Mode",
+            meta = "0 domains - Category bundle",
+            description = "Child-friendly filtering for adult content, social media, and YouTube.",
+            tags = listOf("Adult", "Social", "YouTube"),
+            accentColor = Color(0xFF2563EB),
+            icon = Icons.Outlined.People,
+            categoryIds = setOf("adult-content", "social-media", "youtube")
         ),
         BlocklistPreset(
             id = "hagezi-pro",
             name = "Hagezi Pro",
             meta = "49k domains - Updated Jul 14, 2026",
-            description = "High-quality multi-purpose blocklist maintained by the community. Balanced coverage for ads, trackers, and telemetry.",
-            tags = listOf("Ads", "Trackers", "Telemetry"),
+            description = "High-quality multi-purpose protection for ads, trackers, and malware.",
+            tags = listOf("Ads", "Trackers", "Malware"),
             accentColor = Color(0xFF2563EB),
-            icon = Icons.Outlined.FlashOn
+            icon = Icons.Outlined.FlashOn,
+            categoryIds = setOf("ad-networks", "trackers", "malware-phishing")
         ),
         BlocklistPreset(
             id = "oisd-big",
             name = "OISD Big",
             meta = "185k domains - Updated Jul 13, 2026",
-            description = "One of the most comprehensive blocklists. Aggregates multiple sources for broad coverage of ads and trackers.",
-            tags = listOf("Ads", "Trackers", "Social", "Telemetry"),
+            description = "Broad filtering for ads, trackers, and telemetry endpoints.",
+            tags = listOf("Ads", "Trackers", "Telemetry"),
             accentColor = Color(0xFF7C3AED),
-            icon = Icons.Outlined.ViewList
+            icon = Icons.Outlined.ViewList,
+            categoryIds = setOf("ad-networks", "trackers", "telemetry")
         ),
         BlocklistPreset(
             id = "malware-list",
@@ -1876,7 +1963,8 @@ private fun defaultBlocklistPresetsClean(): List<BlocklistPreset> {
             description = "Focused on active phishing, malware, and ransomware distribution domains. Updated daily from threat intelligence.",
             tags = listOf("Security", "Phishing", "Malware"),
             accentColor = Color(0xFFDC2626),
-            icon = Icons.Outlined.Block
+            icon = Icons.Outlined.Block,
+            categoryIds = setOf("malware-phishing")
         ),
         BlocklistPreset(
             id = "energized-ultimate",
@@ -1885,7 +1973,8 @@ private fun defaultBlocklistPresetsClean(): List<BlocklistPreset> {
             description = "Ultimate protection with adult content, gambling, and social media blocking on top of standard ad and tracker coverage.",
             tags = listOf("Ads", "Trackers", "Malware", "Adult", "Gambling"),
             accentColor = Color(0xFFF59E0B),
-            icon = Icons.Outlined.FlashOn
+            icon = Icons.Outlined.FlashOn,
+            categoryIds = setOf("adult-content", "malware-phishing", "gambling", "ad-networks", "trackers", "social-media")
         )
     )
 }
@@ -1893,20 +1982,13 @@ private fun defaultBlocklistPresetsClean(): List<BlocklistPreset> {
 private fun defaultCategoryPresetsClean(): List<CategoryPreset> {
     return listOf(
         CategoryPreset(
-            id = "ad-networks",
-            name = "Ad Networks",
-            meta = "5k domains - Banner ads, pop-ups, and ad delivery",
-            description = "Blocks advertising infrastructure across websites and apps.",
-            accentColor = Color(0xFF1D7A4A),
-            icon = Icons.Outlined.Block
-        ),
-        CategoryPreset(
-            id = "trackers",
-            name = "Trackers",
-            meta = "3k domains - Analytics, pixel trackers, and beacons",
-            description = "Stops analytics networks and tracking scripts from following browsing activity.",
-            accentColor = Color(0xFFEA580C),
-            icon = Icons.Outlined.Schedule
+            id = "adult-content",
+            name = "Adult Content",
+            meta = "3k domains - Adult websites and explicit media",
+            description = "Restricts adult content categories and associated content delivery hosts.",
+            accentColor = Color(0xFFDB2777),
+            icon = Icons.Outlined.Block,
+            domainCount = 3_000
         ),
         CategoryPreset(
             id = "malware-phishing",
@@ -1914,23 +1996,8 @@ private fun defaultCategoryPresetsClean(): List<CategoryPreset> {
             meta = "2k domains - Known malicious and impersonation domains",
             description = "Adds protection against scam pages, credential theft, and malware delivery.",
             accentColor = Color(0xFF7C3AED),
-            icon = Icons.Outlined.Shield
-        ),
-        CategoryPreset(
-            id = "social-media",
-            name = "Social Media",
-            meta = "890 domains - Social network trackers and embeds",
-            description = "Useful for focus sessions and reducing distraction-heavy social embeds.",
-            accentColor = Color(0xFF6B7280),
-            icon = Icons.Outlined.Home
-        ),
-        CategoryPreset(
-            id = "telemetry",
-            name = "Telemetry",
-            meta = "640 domains - OS and app telemetry endpoints",
-            description = "Blocks platform telemetry and app reporting domains.",
-            accentColor = Color(0xFF64748B),
-            icon = Icons.Outlined.BarChart
+            icon = Icons.Outlined.Shield,
+            domainCount = 2_000
         ),
         CategoryPreset(
             id = "gambling",
@@ -1938,15 +2005,44 @@ private fun defaultCategoryPresetsClean(): List<CategoryPreset> {
             meta = "1k domains - Online gambling and betting",
             description = "Targets gambling platforms and associated ad networks.",
             accentColor = Color(0xFFB45309),
-            icon = Icons.Outlined.FlashOn
+            icon = Icons.Outlined.FlashOn,
+            domainCount = 1_000
         ),
         CategoryPreset(
-            id = "adult-content",
-            name = "Adult Content",
-            meta = "3k domains - Adult websites and explicit media",
-            description = "Restricts adult content categories and associated content delivery hosts.",
-            accentColor = Color(0xFFDB2777),
-            icon = Icons.Outlined.Block
+            id = "ad-networks",
+            name = "Ads",
+            meta = "5k domains - Banner ads, pop-ups, and ad delivery",
+            description = "Blocks advertising infrastructure across websites and apps.",
+            accentColor = Color(0xFF1D7A4A),
+            icon = Icons.Outlined.Block,
+            domainCount = 5_000
+        ),
+        CategoryPreset(
+            id = "trackers",
+            name = "Trackers",
+            meta = "3k domains - Analytics, pixel trackers, and beacons",
+            description = "Stops analytics networks and tracking scripts from following browsing activity.",
+            accentColor = Color(0xFFEA580C),
+            icon = Icons.Outlined.Schedule,
+            domainCount = 3_000
+        ),
+        CategoryPreset(
+            id = "telemetry",
+            name = "Telemetry",
+            meta = "640 domains - OS and app telemetry endpoints",
+            description = "Blocks platform telemetry and app reporting domains.",
+            accentColor = Color(0xFF64748B),
+            icon = Icons.Outlined.BarChart,
+            domainCount = 640
+        ),
+        CategoryPreset(
+            id = "social-media",
+            name = "Social Media",
+            meta = "890 domains - Social network trackers and embeds",
+            description = "Useful for focus sessions and reducing distraction-heavy social embeds.",
+            accentColor = Color(0xFF6B7280),
+            icon = Icons.Outlined.Home,
+            domainCount = 890
         ),
         CategoryPreset(
             id = "cryptomining",
@@ -1954,7 +2050,26 @@ private fun defaultCategoryPresetsClean(): List<CategoryPreset> {
             meta = "310 domains - Browser-based crypto miners",
             description = "Blocks in-browser mining scripts and pool endpoints.",
             accentColor = Color(0xFF0EA5E9),
-            icon = Icons.Outlined.Schedule
+            icon = Icons.Outlined.Schedule,
+            domainCount = 310
+        ),
+        CategoryPreset(
+            id = "violence",
+            name = "Violence",
+            meta = "0 domains - Violent and graphic content",
+            description = "Filters domains associated with violent or graphic material.",
+            accentColor = Color(0xFFDC2626),
+            icon = Icons.Outlined.Shield,
+            domainCount = 0
+        ),
+        CategoryPreset(
+            id = "youtube",
+            name = "YouTube",
+            meta = "0 domains - YouTube access and embeds",
+            description = "Controls YouTube access and embedded video endpoints for Kids Mode.",
+            accentColor = Color(0xFFEF3438),
+            icon = Icons.Outlined.PlayCircleOutline,
+            domainCount = 0
         )
     )
 }
