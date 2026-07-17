@@ -1,10 +1,8 @@
 package com.shieldfocus.android.ui
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -56,8 +54,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
@@ -80,6 +80,7 @@ import androidx.compose.material.icons.outlined.DoNotDisturbAlt
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.People
+import androidx.compose.material.icons.outlined.PauseCircleOutline
 import androidx.compose.material.icons.outlined.PlayCircleOutline
 import androidx.compose.material.icons.outlined.Rule
 import androidx.compose.material.icons.outlined.ViewList
@@ -132,36 +133,66 @@ fun ShieldFocusApp(
     var backupInput by remember { mutableStateOf(TextFieldValue("")) }
     var backupMessage by remember { mutableStateOf("") }
     var currentTab by remember { mutableStateOf(AppTab.Home) }
-    val contentScrollState = rememberScrollState()
+    val homeScrollState = rememberScrollState()
+    val rulesScrollState = rememberScrollState()
+    val blockListScrollState = rememberScrollState()
+    val analyticsScrollState = rememberScrollState()
+    val contentScrollState = when (currentTab) {
+        AppTab.Home -> homeScrollState
+        AppTab.Rules -> rulesScrollState
+        AppTab.BlockList -> blockListScrollState
+        AppTab.Analytics -> analyticsScrollState
+    }
     var bottomNavigationVisible by remember { mutableStateOf(true) }
     val clipboardManager = LocalClipboardManager.current
 
     LaunchedEffect(contentScrollState) {
         var previousScroll = contentScrollState.value
+        var accumulatedDelta = 0
         snapshotFlow { contentScrollState.value }.collect { currentScroll ->
-            bottomNavigationVisible = when {
-                currentScroll == 0 -> true
-                currentScroll > previousScroll + 3 -> false
-                currentScroll < previousScroll - 3 -> true
-                else -> bottomNavigationVisible
+            val delta = currentScroll - previousScroll
+            accumulatedDelta = when {
+                delta > 0 -> if (accumulatedDelta < 0) delta else accumulatedDelta + delta
+                delta < 0 -> if (accumulatedDelta > 0) delta else accumulatedDelta + delta
+                else -> accumulatedDelta
+            }
+            when {
+                currentScroll == 0 -> {
+                    bottomNavigationVisible = true
+                    accumulatedDelta = 0
+                }
+                accumulatedDelta >= 20 -> {
+                    bottomNavigationVisible = false
+                    accumulatedDelta = 0
+                }
+                accumulatedDelta <= -20 -> {
+                    bottomNavigationVisible = true
+                    accumulatedDelta = 0
+                }
             }
             previousScroll = currentScroll
         }
     }
 
+    val bottomNavigationProgress by animateFloatAsState(
+        targetValue = if (bottomNavigationVisible) 1f else 0f,
+        animationSpec = tween(durationMillis = 180),
+        label = "bottomNavigationProgress"
+    )
+
     Scaffold(
         containerColor = Color(0xFFF3F4F6),
         bottomBar = {
-            AnimatedVisibility(
-                visible = bottomNavigationVisible,
-                enter = fadeIn() + slideInVertically(initialOffsetY = { it }),
-                exit = fadeOut() + slideOutVertically(targetOffsetY = { it })
-            ) {
-                BottomNavigationBar(
-                    selectedTab = currentTab,
-                    onTabSelected = { currentTab = it }
-                )
-            }
+            BottomNavigationBar(
+                modifier = Modifier.graphicsLayer {
+                    alpha = bottomNavigationProgress
+                    translationY = (1f - bottomNavigationProgress) * size.height
+                },
+                selectedTab = currentTab,
+                onTabSelected = { tab ->
+                    if (bottomNavigationVisible) currentTab = tab
+                }
+            )
         }
     ) { padding ->
         Column(
@@ -173,7 +204,12 @@ fun ShieldFocusApp(
                 .verticalScroll(contentScrollState),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            when (currentTab) {
+            Crossfade(
+                targetState = currentTab,
+                animationSpec = tween(durationMillis = 180),
+                label = "tabContent"
+            ) { tab ->
+            when (tab) {
                 AppTab.Home -> {
                     HomeTabContent(
                         protectionEnabled = protectionEnabled,
@@ -262,6 +298,7 @@ fun ShieldFocusApp(
                     )
                 }
 
+            }
             }
         }
     }
@@ -1056,13 +1093,10 @@ private fun BlockListTabContent(
     onAddAllowedDomain: (String) -> Unit
 ) {
     var selectedSection by remember { mutableStateOf(BlocklistSection.DefaultLists) }
-    var showAddSheet by remember { mutableStateOf(false) }
-    var sheetMode by remember { mutableStateOf(RuleSheetMode.Block) }
-    var sheetDomain by remember { mutableStateOf("") }
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val defaultPresets = defaultBlocklistPresetsClean()
     val categoryPresets = defaultCategoryPresetsClean()
-    var activePresetId by remember { mutableStateOf(defaultPresets.first().id) }
+    var importedPresetIds by remember { mutableStateOf(setOf(defaultPresets.first().id)) }
+    var enabledPresetIds by remember { mutableStateOf(setOf(defaultPresets.first().id)) }
     var activeCategoryIds by remember { mutableStateOf(setOf("ad-networks", "trackers", "malware-phishing")) }
     val activeBlockedCount = blockedDomains.size + activeCategoryIds.size
     val activeCategoryCount = activeCategoryIds.size
@@ -1146,10 +1180,18 @@ private fun BlockListTabContent(
                         defaultPresets.forEach { preset ->
                             BlocklistPresetCard(
                                 preset = preset,
-                                active = preset.id == activePresetId,
-                                onActivate = {
-                                    activePresetId = preset.id
-                                    sheetMode = RuleSheetMode.Block
+                                imported = preset.id in importedPresetIds,
+                                enabled = preset.id in enabledPresetIds,
+                                onImport = {
+                                    importedPresetIds = importedPresetIds + preset.id
+                                    enabledPresetIds = enabledPresetIds + preset.id
+                                },
+                                onEnabledChange = { enabled ->
+                                    enabledPresetIds = if (enabled) {
+                                        enabledPresetIds + preset.id
+                                    } else {
+                                        enabledPresetIds - preset.id
+                                    }
                                 }
                             )
                         }
@@ -1197,56 +1239,6 @@ private fun BlockListTabContent(
             }
         }
 
-        Card(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(8.dp)
-                .noRippleClickable {
-                    sheetMode = RuleSheetMode.Block
-                    showAddSheet = true
-                },
-            shape = RoundedCornerShape(18.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1D7A4A))
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(imageVector = Icons.Outlined.Add, contentDescription = null, tint = Color.White)
-                Text("Add Rule", color = Color.White, fontWeight = FontWeight.SemiBold)
-            }
-        }
-    }
-
-    if (showAddSheet) {
-        ModalBottomSheet(
-            onDismissRequest = { showAddSheet = false },
-            sheetState = sheetState
-        ) {
-            AddRuleSheet(
-                domain = sheetDomain,
-                onDomainChange = { sheetDomain = it },
-                selectedMode = sheetMode,
-                onSelectMode = { sheetMode = it },
-                onClose = {
-                    showAddSheet = false
-                    sheetDomain = ""
-                },
-                onSubmit = {
-                    val value = sheetDomain.trim()
-                    if (value.isNotEmpty()) {
-                        if (sheetMode == RuleSheetMode.Block) {
-                            onAddBlockedDomain(value)
-                        } else {
-                            onAddAllowedDomain(value)
-                        }
-                    }
-                    showAddSheet = false
-                    sheetDomain = ""
-                }
-            )
-        }
     }
 }
 
@@ -1324,12 +1316,14 @@ private fun BlocklistHeroCard(
 @Composable
 private fun BlocklistPresetCard(
     preset: BlocklistPreset,
-    active: Boolean,
-    onActivate: () -> Unit
+    imported: Boolean,
+    enabled: Boolean,
+    onImport: () -> Unit,
+    onEnabledChange: (Boolean) -> Unit
 ) {
     Card(
         shape = RoundedCornerShape(20.dp),
-        border = BorderStroke(1.dp, if (active) preset.accentColor.copy(alpha = 0.35f) else MaterialTheme.colorScheme.outlineVariant),
+        border = BorderStroke(1.dp, if (enabled) preset.accentColor.copy(alpha = 0.35f) else MaterialTheme.colorScheme.outlineVariant),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Column(
@@ -1357,7 +1351,14 @@ private fun BlocklistPresetCard(
 
                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(preset.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            preset.name,
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                         if (preset.recommended) {
                             Card(
                                 shape = RoundedCornerShape(999.dp),
@@ -1368,7 +1369,9 @@ private fun BlocklistPresetCard(
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                                     color = Color(0xFF0F9D58),
                                     style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.SemiBold
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                             }
                         }
@@ -1380,11 +1383,21 @@ private fun BlocklistPresetCard(
                     )
                 }
 
-                if (active) {
-                    Switch(checked = true, onCheckedChange = { })
+                if (imported) {
+                    Switch(
+                        checked = enabled,
+                        onCheckedChange = onEnabledChange,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color(0xFF147A51),
+                            checkedTrackColor = Color(0xFFCFF8E3),
+                            uncheckedThumbColor = Color.White,
+                            uncheckedTrackColor = Color(0xFFE3E7ED),
+                            uncheckedBorderColor = Color.Transparent
+                        )
+                    )
                 } else {
                     Button(
-                        onClick = onActivate,
+                        onClick = onImport,
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = preset.accentColor)
                     ) {
@@ -1401,14 +1414,16 @@ private fun BlocklistPresetCard(
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 preset.tags.forEach { tag ->
+                    val tagColors = blocklistTagColors(tag)
                     Card(
-                        shape = RoundedCornerShape(999.dp),
-                        colors = CardDefaults.cardColors(containerColor = preset.accentColor.copy(alpha = 0.10f))
+                        shape = RoundedCornerShape(4.dp),
+                        border = BorderStroke(1.dp, tagColors.second.copy(alpha = 0.22f)),
+                        colors = CardDefaults.cardColors(containerColor = tagColors.first)
                     ) {
                         Text(
                             text = tag,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                            color = preset.accentColor,
+                            color = tagColors.second,
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -1416,18 +1431,29 @@ private fun BlocklistPresetCard(
                 }
             }
 
-            if (active) {
+            if (imported) {
                 Card(
                     shape = RoundedCornerShape(999.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5EE))
+                    colors = CardDefaults.cardColors(containerColor = if (enabled) Color(0xFFD1FAE5) else Color(0xFFE5E7EB))
                 ) {
-                    Text(
-                        "Active",
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                        color = Color(0xFF0F9D58),
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    Row(
+                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = if (enabled) Icons.Outlined.CheckCircleOutline else Icons.Outlined.PauseCircleOutline,
+                            contentDescription = null,
+                            tint = if (enabled) Color(0xFF16835A) else Color(0xFF7C8491),
+                            modifier = Modifier.size(12.dp)
+                        )
+                        Text(
+                            if (enabled) "Active" else "Paused",
+                            color = if (enabled) Color(0xFF16835A) else Color(0xFF7C8491),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
                 }
             }
         }
@@ -1640,6 +1666,18 @@ private fun compactCount(value: Int): String {
     }
 }
 
+private fun blocklistTagColors(tag: String): Pair<Color, Color> = when (tag.lowercase()) {
+    "ads" -> Color(0xFFFFE8E8) to Color(0xFFE64A4F)
+    "trackers" -> Color(0xFFFFF0DC) to Color(0xFFD97706)
+    "malware" -> Color(0xFFF0E8FF) to Color(0xFF7C3AED)
+    "phishing", "security" -> Color(0xFFFFE7E7) to Color(0xFFDC2626)
+    "social" -> Color(0xFFE7F0FF) to Color(0xFF2563EB)
+    "telemetry" -> Color(0xFFE0F6F0) to Color(0xFF159A76)
+    "adult" -> Color(0xFFFFE8F1) to Color(0xFFDB2777)
+    "gambling" -> Color(0xFFFFE6F0) to Color(0xFFE23D7D)
+    else -> Color(0xFFE8EEF5) to Color(0xFF64748B)
+}
+
 private fun defaultBlocklistPresetsClean(): List<BlocklistPreset> {
     return listOf(
         BlocklistPreset(
@@ -1678,6 +1716,15 @@ private fun defaultBlocklistPresetsClean(): List<BlocklistPreset> {
             tags = listOf("Security", "Phishing", "Malware"),
             accentColor = Color(0xFFDC2626),
             icon = Icons.Outlined.Block
+        ),
+        BlocklistPreset(
+            id = "energized-ultimate",
+            name = "Energized Ultimate",
+            meta = "320k domains - Updated Jul 12, 2026",
+            description = "Ultimate protection with adult content, gambling, and social media blocking on top of standard ad and tracker coverage.",
+            tags = listOf("Ads", "Trackers", "Malware", "Adult", "Gambling"),
+            accentColor = Color(0xFFF59E0B),
+            icon = Icons.Outlined.FlashOn
         )
     )
 }
@@ -2085,6 +2132,7 @@ private fun SettingsTabContent(
 
 @Composable
 private fun BottomNavigationBar(
+    modifier: Modifier = Modifier,
     selectedTab: AppTab,
     onTabSelected: (AppTab) -> Unit
 ) {
@@ -2092,7 +2140,7 @@ private fun BottomNavigationBar(
     val unselectedColor = Color(0xFF8E96A8)
 
     Card(
-        modifier = Modifier.navigationBarsPadding(),
+        modifier = modifier.navigationBarsPadding(),
         shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         colors = CardDefaults.cardColors(
