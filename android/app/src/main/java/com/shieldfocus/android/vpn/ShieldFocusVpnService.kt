@@ -21,6 +21,8 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.net.Inet4Address
 import java.net.InetAddress
+import java.net.UnknownHostException
+import java.io.IOException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -88,7 +90,7 @@ class ShieldFocusVpnService : VpnService() {
             )
         } catch (error: RuntimeException) {
             Log.e(TAG, "Failed to start VPN foreground service", error)
-            updateStatus(VpnConnectionState.Error, errorMessage = "Unable to start protection")
+            updateStatus(VpnConnectionState.Error, errorMessage = describeVpnError(error, "start protection"))
             running.set(false)
             tunnelGeneration.incrementAndGet()
             stopSelf()
@@ -100,7 +102,7 @@ class ShieldFocusVpnService : VpnService() {
                 runTunnel(generation)
             } catch (error: Exception) {
                 Log.e(TAG, "VPN worker failed", error)
-                updateStatus(VpnConnectionState.Error, errorMessage = "Protection stopped unexpectedly")
+                updateStatus(VpnConnectionState.Error, errorMessage = describeVpnError(error, "run protection"))
             } finally {
                 finishTunnel(generation)
             }
@@ -136,11 +138,14 @@ class ShieldFocusVpnService : VpnService() {
             builder.establish()
         } catch (error: Exception) {
             Log.e(TAG, "Failed to establish VPN", error)
+            updateStatus(VpnConnectionState.Error, errorMessage = describeVpnError(error, "create the VPN tunnel"))
             null
         }
 
         if (descriptor == null) {
-            updateStatus(VpnConnectionState.Error, errorMessage = "Unable to establish the VPN connection")
+            if (connectionStatus.value.state != VpnConnectionState.Error) {
+                updateStatus(VpnConnectionState.Error, errorMessage = "Android could not create the VPN tunnel. Check that another VPN is not active, then try again.")
+            }
             return
         }
 
@@ -160,6 +165,9 @@ class ShieldFocusVpnService : VpnService() {
                         input.read(packetBuffer)
                     } catch (error: Exception) {
                         Log.e(TAG, "VPN read failed", error)
+                        if (running.get()) {
+                            updateStatus(VpnConnectionState.Error, errorMessage = describeVpnError(error, "read VPN traffic"))
+                        }
                         break
                     }
 
@@ -206,6 +214,9 @@ class ShieldFocusVpnService : VpnService() {
                         output.flush()
                     } catch (error: Exception) {
                         Log.e(TAG, "VPN write failed", error)
+                        if (running.get()) {
+                            updateStatus(VpnConnectionState.Error, errorMessage = describeVpnError(error, "write VPN traffic"))
+                        }
                         break
                     }
                 }
@@ -305,6 +316,18 @@ class ShieldFocusVpnService : VpnService() {
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
+    }
+
+    private fun describeVpnError(error: Throwable, action: String): String = when (error) {
+        is SecurityException -> "Android blocked permission to $action. Allow VPN and notification access, then try again."
+        is UnknownHostException -> "No DNS server could be reached. Check your internet connection, then try again."
+        is IOException -> "The VPN connection was interrupted while trying to $action. Check your network and try again."
+        is IllegalStateException -> when {
+            error.message?.contains("multiple DataStores", ignoreCase = true) == true ->
+                "ShieldFocus could not open its settings safely. Close and reopen the app, then try again."
+            else -> "Android was not ready to $action. Turn off any other VPN and try again."
+        }
+        else -> "ShieldFocus could not $action (${error.javaClass.simpleName}). Please try again."
     }
 
     companion object {

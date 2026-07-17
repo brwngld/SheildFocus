@@ -1,13 +1,12 @@
 package com.shieldfocus.android.data
 
 import android.content.Context
-import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
-import androidx.datastore.preferences.preferencesDataStoreFile
+import androidx.datastore.preferences.preferencesDataStore
 import com.shieldfocus.android.domain.DomainNormalizer
 import com.shieldfocus.android.model.BlockingCategory
 import com.shieldfocus.android.model.BlockingSchedule
@@ -23,6 +22,8 @@ import java.util.UUID
 
 private const val DATA_STORE_NAME = "shieldfocus_prefs"
 private const val MAX_LOG_ENTRIES = 50
+
+private val Context.shieldFocusDataStore by preferencesDataStore(name = DATA_STORE_NAME)
 
 private val KEY_ENABLED = booleanPreferencesKey("enabled")
 private val KEY_STRICT_MODE = booleanPreferencesKey("strict_mode")
@@ -47,9 +48,7 @@ private val CATEGORY_COLORS = listOf(
 private val DEFAULT_SCHEDULE_DAYS = setOf(2, 3, 4, 5, 6)
 
 class ProtectionStore(context: Context) {
-    private val dataStore = PreferenceDataStoreFactory.create(
-        produceFile = { context.applicationContext.preferencesDataStoreFile(DATA_STORE_NAME) }
-    )
+    private val dataStore = context.applicationContext.shieldFocusDataStore
 
     fun loadSettings(): ProtectionSettings = runBlocking {
         val preferences = dataStore.data.first()
