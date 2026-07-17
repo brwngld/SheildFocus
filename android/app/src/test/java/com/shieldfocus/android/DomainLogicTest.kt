@@ -46,6 +46,62 @@ class DomainLogicTest {
     }
 
     @Test
+    fun strictModeBlocksVariantContainingBlockedDomainLabel() {
+        val decision = DomainPolicy.decide(
+            hostname = "www.xvideos2.com",
+            blockedDomains = setOf("xvideos.com"),
+            allowedDomains = emptySet(),
+            strictMode = true
+        )
+
+        assertFalse(decision.allow)
+        assertEquals("blocked-domain-variant", decision.reason)
+    }
+
+    @Test
+    fun strictModeBlocksCharactersBeforeAndAfterBlockedLabel() {
+        listOf(
+            "myxvideos.com",
+            "xvideosmirror.net",
+            "my-x-videos-2.org"
+        ).forEach { hostname ->
+            val decision = DomainPolicy.decide(
+                hostname = hostname,
+                blockedDomains = setOf("xvideos.com"),
+                allowedDomains = emptySet(),
+                strictMode = true
+            )
+
+            assertFalse(hostname, decision.allow)
+            assertEquals("blocked-domain-variant", decision.reason)
+        }
+    }
+
+    @Test
+    fun numberedVariantRemainsAllowedWhenStrictModeIsOff() {
+        val decision = DomainPolicy.decide(
+            hostname = "xvideos2.com",
+            blockedDomains = setOf("xvideos.com"),
+            allowedDomains = emptySet(),
+            strictMode = false
+        )
+
+        assertTrue(decision.allow)
+    }
+
+    @Test
+    fun strictModeDoesNotBlockDomainWithoutBlockedLabel() {
+        val decision = DomainPolicy.decide(
+            hostname = "safevideocopy.com",
+            blockedDomains = setOf("xvideos.com"),
+            allowedDomains = emptySet(),
+            strictMode = true
+        )
+
+        assertTrue(decision.allow)
+    }
+
+    @Test
     fun scheduleIsActiveDuringConfiguredWindow() {
         val schedule = BlockingSchedule(
             id = "work-hours",

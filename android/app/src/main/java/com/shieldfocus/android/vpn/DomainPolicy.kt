@@ -28,8 +28,13 @@ object DomainPolicy {
             return PolicyDecision(allow = true, reason = "allowlist")
         }
 
-        if (blockedDomains.any { matches(normalized, it) } || defaultBlockedDomains.any { matches(normalized, it) }) {
+        val allBlockedDomains = blockedDomains + defaultBlockedDomains
+        if (allBlockedDomains.any { matches(normalized, it) }) {
             return PolicyDecision(allow = false, reason = "blocked-domain")
+        }
+
+        if (strictMode && allBlockedDomains.any { matchesEmbeddedVariant(normalized, it) }) {
+            return PolicyDecision(allow = false, reason = "blocked-domain-variant")
         }
 
         return PolicyDecision(allow = true, reason = if (strictMode) "allow-strict" else "allow")
@@ -38,5 +43,23 @@ object DomainPolicy {
     private fun matches(hostname: String, rule: String): Boolean {
         val normalizedRule = DomainNormalizer.normalize(rule)
         return normalizedRule.isNotBlank() && (hostname == normalizedRule || hostname.endsWith(".$normalizedRule"))
+    }
+
+    private fun matchesEmbeddedVariant(hostname: String, rule: String): Boolean {
+        val normalizedRule = DomainNormalizer.normalize(rule)
+        if (normalizedRule.isBlank()) return false
+
+        val blockedLabel = normalizedRule.substringBefore('.').filter(Char::isLetterOrDigit)
+        if (blockedLabel.length < 5) return false
+
+        val hostnameLabels = hostname.split('.')
+        if (hostnameLabels.size < 2) return false
+
+        return hostnameLabels
+            .dropLast(1)
+            .map { it.filter(Char::isLetterOrDigit) }
+            .any { candidateLabel ->
+                candidateLabel.length > blockedLabel.length && blockedLabel in candidateLabel
+            }
     }
 }

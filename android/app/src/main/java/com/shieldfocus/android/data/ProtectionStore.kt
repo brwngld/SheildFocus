@@ -37,6 +37,18 @@ private val KEY_SCHEDULES = stringPreferencesKey("blocking_schedules")
 private val KEY_DECISION_LOGS = stringPreferencesKey("decision_logs")
 private val KEY_IMPORTED_PRESETS = stringSetPreferencesKey("imported_blocklist_presets")
 private val KEY_ACTIVE_PRESET_CATEGORIES = stringSetPreferencesKey("active_blocklist_categories")
+private val KEY_ACTIVE_ADULT_SUBCATEGORIES = stringSetPreferencesKey("active_adult_subcategories")
+
+private val DEFAULT_ADULT_SUBCATEGORIES = setOf(
+    "pornographic-websites",
+    "adult-videos",
+    "webcam-live-chat",
+    "escort-hookup-sites",
+    "explicit-image-galleries",
+    "nsfw-forums",
+    "adult-advertising",
+    "adult-search-results"
+)
 
 private val CATEGORY_COLORS = listOf(
     "#6671FF",
@@ -50,7 +62,11 @@ private val CATEGORY_COLORS = listOf(
 private val DEFAULT_SCHEDULE_DAYS = setOf(2, 3, 4, 5, 6)
 
 class ProtectionStore(context: Context) {
-    private val dataStore = context.applicationContext.shieldFocusDataStore
+    private val applicationContext = context.applicationContext
+    private val dataStore = applicationContext.shieldFocusDataStore
+    private val adultDomainsBySubcategory: Map<String, Set<String>> by lazy {
+        loadBundledAdultDomains()
+    }
 
     fun loadSettings(): ProtectionSettings = runBlocking {
         val preferences = dataStore.data.first()
@@ -100,8 +116,36 @@ class ProtectionStore(context: Context) {
             .filter { it.enabled && (it.scheduleId.isBlank() || it.scheduleId in activeScheduleIds) }
             .flatMap { it.domains }
             .toSet()
-        manual + categoryDomains
+        val activeCategoryIds = preferences[KEY_ACTIVE_PRESET_CATEGORIES]
+            ?: setOf("adult-content", "malware-phishing", "gambling")
+        val activeAdultSubcategories = preferences[KEY_ACTIVE_ADULT_SUBCATEGORIES]
+            ?: DEFAULT_ADULT_SUBCATEGORIES
+        val bundledAdultDomains = if ("adult-content" in activeCategoryIds) {
+            activeAdultSubcategories.flatMap { adultDomainsBySubcategory[it].orEmpty() }.toSet()
+        } else {
+            emptySet()
+        }
+        manual + categoryDomains + bundledAdultDomains
     }
+
+    private fun loadBundledAdultDomains(): Map<String, Set<String>> = runCatching {
+        val payload = applicationContext.assets
+            .open("blocklists/adult_domains.json")
+            .bufferedReader()
+            .use { it.readText() }
+        val categories = JSONObject(payload).getJSONObject("categories")
+        categories.keys().asSequence().associateWith { categoryId ->
+            readJsonStringSet(categories.optJSONArray(categoryId))
+                .mapNotNull { entry ->
+                    val rawEntry = entry.trim().lowercase()
+                    val normalized = normalizeDomain(rawEntry)
+                    normalized?.takeIf {
+                        rawEntry == normalized || rawEntry == "www.$normalized"
+                    }
+                }
+                .toSet()
+        }
+    }.getOrElse { emptyMap() }
 
     fun decisionHistoryFlow(): Flow<List<Decision>> {
         return dataStore.data.map { preferences ->
@@ -128,6 +172,14 @@ class ProtectionStore(context: Context) {
 
     fun saveActivePresetCategoryIds(ids: Set<String>) = runBlocking {
         dataStore.edit { it[KEY_ACTIVE_PRESET_CATEGORIES] = ids }
+    }
+
+    fun loadActiveAdultSubcategoryIds(): Set<String> = runBlocking {
+        dataStore.data.first()[KEY_ACTIVE_ADULT_SUBCATEGORIES] ?: DEFAULT_ADULT_SUBCATEGORIES
+    }
+
+    fun saveActiveAdultSubcategoryIds(ids: Set<String>) = runBlocking {
+        dataStore.edit { it[KEY_ACTIVE_ADULT_SUBCATEGORIES] = ids }
     }
 
     fun saveBlockedDomains(domains: Set<String>) = runBlocking {

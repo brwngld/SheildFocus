@@ -58,6 +58,9 @@ class MainActivity : ComponentActivity() {
             var activePresetCategoryIds by remember {
                 mutableStateOf(protectionStore.loadActivePresetCategoryIds())
             }
+            var activeAdultSubcategoryIds by remember {
+                mutableStateOf(protectionStore.loadActiveAdultSubcategoryIds())
+            }
             val decisionLogs by produceState(
                 initialValue = protectionStore.loadDecisionHistory()
             ) {
@@ -183,6 +186,7 @@ class MainActivity : ComponentActivity() {
                     decisionLogs = decisionLogs,
                     importedPresetIds = importedPresetIds,
                     activePresetCategoryIds = activePresetCategoryIds,
+                    activeAdultSubcategoryIds = activeAdultSubcategoryIds,
                     onProtectionToggle = { enabled ->
                         if (enabled) {
                             startVpnFlow?.invoke()
@@ -239,6 +243,10 @@ class MainActivity : ComponentActivity() {
                     onActivePresetCategoryIdsChange = { ids ->
                         activePresetCategoryIds = ids
                         protectionStore.saveActivePresetCategoryIds(ids)
+                    },
+                    onActiveAdultSubcategoryIdsChange = { ids ->
+                        activeAdultSubcategoryIds = ids
+                        protectionStore.saveActiveAdultSubcategoryIds(ids)
                     },
                     onRemoveSchedule = { scheduleId ->
                         updateSchedules(protectionStore.removeSchedule(scheduleId))

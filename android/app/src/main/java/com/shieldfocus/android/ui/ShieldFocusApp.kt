@@ -33,6 +33,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -117,6 +118,7 @@ fun ShieldFocusApp(
     decisionLogs: List<Decision>,
     importedPresetIds: Set<String>,
     activePresetCategoryIds: Set<String>,
+    activeAdultSubcategoryIds: Set<String>,
     onProtectionToggle: (Boolean) -> Unit,
     onStrictModeToggle: (Boolean) -> Unit,
     onAutoStartToggle: (Boolean) -> Unit,
@@ -134,6 +136,7 @@ fun ShieldFocusApp(
     onAddSchedule: (String, Set<Int>, Int, Int) -> Unit,
     onImportedPresetIdsChange: (Set<String>) -> Unit,
     onActivePresetCategoryIdsChange: (Set<String>) -> Unit,
+    onActiveAdultSubcategoryIdsChange: (Set<String>) -> Unit,
     onRemoveSchedule: (String) -> Unit,
     onUpdateSchedule: (String, String, Set<Int>, Int, Int, Boolean) -> Unit,
     onExportBackup: () -> String,
@@ -308,8 +311,10 @@ fun ShieldFocusApp(
                         schedules = schedules,
                         importedPresetIds = importedPresetIds,
                         activeCategoryIds = activePresetCategoryIds,
+                        activeAdultSubcategoryIds = activeAdultSubcategoryIds,
                         onImportedPresetIdsChange = onImportedPresetIdsChange,
                         onActiveCategoryIdsChange = onActivePresetCategoryIdsChange,
+                        onActiveAdultSubcategoryIdsChange = onActiveAdultSubcategoryIdsChange,
                         categoryInput = categoryInput,
                         onCategoryInputChange = { categoryInput = it },
                         onCreateCategory = {
@@ -1238,8 +1243,10 @@ private fun BlockListTabContent(
     schedules: List<BlockingSchedule>,
     importedPresetIds: Set<String>,
     activeCategoryIds: Set<String>,
+    activeAdultSubcategoryIds: Set<String>,
     onImportedPresetIdsChange: (Set<String>) -> Unit,
     onActiveCategoryIdsChange: (Set<String>) -> Unit,
+    onActiveAdultSubcategoryIdsChange: (Set<String>) -> Unit,
     categoryInput: String,
     onCategoryInputChange: (String) -> Unit,
     onCreateCategory: () -> Unit,
@@ -1272,7 +1279,8 @@ private fun BlockListTabContent(
         val storedCategory = categories.firstOrNull { category ->
             category.id == preset.id || category.name.equals(preset.name, ignoreCase = true)
         }
-        preset.id to (storedCategory?.domains?.distinct()?.size ?: 0)
+        preset.id to (storedCategory?.domains?.distinct()?.size
+            ?: if (preset.id == "adult-content") preset.domainCount else 0)
     }
     val activeBlockedCount = blockedDomains.distinct().size + activeCategoryIds.sumOf { actualCategoryDomainCounts[it] ?: 0 }
     val activeCategoryCount = activeCategoryIds.size
@@ -1392,6 +1400,8 @@ private fun BlockListTabContent(
                                     meta = "${compactCount(actualCategoryDomainCounts[preset.id] ?: 0)} domains - ${preset.meta.substringAfter(" - ", preset.meta)}"
                                 ),
                                 checked = checked,
+                                activeSubcategoryIds = if (preset.id == "adult-content") activeAdultSubcategoryIds else emptySet(),
+                                onActiveSubcategoryIdsChange = onActiveAdultSubcategoryIdsChange,
                                 onCheckedChange = { enabled ->
                                     onActiveCategoryIdsChange(if (enabled) {
                                         activeCategoryIds + preset.id
@@ -1661,12 +1671,17 @@ private fun categoryIdForBlocklistTag(tag: String): String? = when (tag.lowercas
     else -> null
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CategoryPresetCard(
     preset: CategoryPreset,
     checked: Boolean,
+    activeSubcategoryIds: Set<String>,
+    onActiveSubcategoryIdsChange: (Set<String>) -> Unit,
     onCheckedChange: (Boolean) -> Unit
 ) {
+    var showEditSheet by remember(preset.id) { mutableStateOf(false) }
+    val editSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     Card(
         shape = RoundedCornerShape(20.dp),
         border = BorderStroke(1.dp, if (checked) preset.accentColor.copy(alpha = 0.35f) else MaterialTheme.colorScheme.outlineVariant),
@@ -1723,8 +1738,84 @@ private fun CategoryPresetCard(
                 )
             }
 
+            if (preset.subcategories.isNotEmpty()) {
+                Card(
+                    modifier = Modifier.noRippleClickable { showEditSheet = true },
+                    shape = RoundedCornerShape(7.dp),
+                    border = BorderStroke(1.dp, Color(0xFFDDE2E7)),
+                    colors = CardDefaults.cardColors(containerColor = Color.White)
+                ) {
+                    Icon(Icons.Outlined.Edit, "Edit ${preset.name}", tint = preset.accentColor, modifier = Modifier.padding(8.dp).size(17.dp))
+                }
+            }
             Switch(checked = checked, onCheckedChange = onCheckedChange)
         }
+    }
+    if (showEditSheet) {
+        ModalBottomSheet(onDismissRequest = { showEditSheet = false }, sheetState = editSheetState) {
+            CategorySubcategorySheet(
+                preset = preset,
+                activeSubcategoryIds = activeSubcategoryIds,
+                onActiveSubcategoryIdsChange = onActiveSubcategoryIdsChange,
+                onClose = { showEditSheet = false }
+            )
+        }
+    }
+}
+
+@Composable
+private fun CategorySubcategorySheet(
+    preset: CategoryPreset,
+    activeSubcategoryIds: Set<String>,
+    onActiveSubcategoryIdsChange: (Set<String>) -> Unit,
+    onClose: () -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 22.dp).padding(bottom = 28.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Text("Edit ${preset.name}", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Text(
+            "Choose which protections are included.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        preset.subcategories.forEach { subcategory ->
+            Card(
+                shape = RoundedCornerShape(10.dp),
+                border = BorderStroke(1.dp, Color(0xFFE1E5E8)),
+                colors = CardDefaults.cardColors(containerColor = Color.White)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 13.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(subcategory.name, modifier = Modifier.weight(1f), fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                    Switch(
+                        checked = subcategory.id in activeSubcategoryIds,
+                        onCheckedChange = { enabled ->
+                            onActiveSubcategoryIdsChange(
+                                if (enabled) activeSubcategoryIds + subcategory.id else activeSubcategoryIds - subcategory.id
+                            )
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color(0xFF147A51),
+                            checkedTrackColor = Color(0xFFCFF8E3),
+                            uncheckedThumbColor = Color.White,
+                            uncheckedTrackColor = Color(0xFFE4E7ED),
+                            uncheckedBorderColor = Color.Transparent
+                        )
+                    )
+                }
+            }
+        }
+        Button(
+            onClick = onClose,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(10.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF19784F))
+        ) { Text("Done") }
     }
 }
 
@@ -1747,8 +1838,11 @@ private data class CategoryPreset(
     val description: String,
     val accentColor: Color,
     val icon: androidx.compose.ui.graphics.vector.ImageVector,
-    val domainCount: Int = 0
+    val domainCount: Int = 0,
+    val subcategories: List<CategorySubcategory> = emptyList()
 )
+
+private data class CategorySubcategory(val id: String, val name: String)
 
 private fun defaultBlocklistPresets(): List<BlocklistPreset> {
     return listOf(
@@ -1901,6 +1995,8 @@ private fun blocklistTagColors(tag: String): Pair<Color, Color> = when (tag.lowe
     "gambling" -> Color(0xFFFFF0D9) to Color(0xFFD97706)
     "violence" -> Color(0xFFFFE2E2) to Color(0xFFDC2626)
     "youtube" -> Color(0xFFFFE5E5) to Color(0xFFEF3438)
+    "safesearch" -> Color(0xFFE0F6F0) to Color(0xFF159A76)
+    "family safe" -> Color(0xFFE7F0FF) to Color(0xFF2563EB)
     else -> Color(0xFFE8EEF5) to Color(0xFF64748B)
 }
 
@@ -1911,7 +2007,7 @@ private fun defaultBlocklistPresetsClean(): List<BlocklistPreset> {
             name = "ShieldFocus Default",
             meta = "6k domains - Category bundle",
             description = "Recommended protection against adult content, malicious websites, phishing, and gambling.",
-            tags = listOf("Adult", "Malware", "Gambling"),
+            tags = listOf("Adult", "SafeSearch", "Family Safe"),
             accentColor = Color(0xFF1D7A4A),
             icon = Icons.Outlined.Shield,
             recommended = true,
@@ -1985,11 +2081,21 @@ private fun defaultCategoryPresetsClean(): List<CategoryPreset> {
         CategoryPreset(
             id = "adult-content",
             name = "Adult Content",
-            meta = "3k domains - Adult websites and explicit media",
-            description = "Restricts adult content categories and associated content delivery hosts.",
+            meta = "827 domains - Adult websites and explicit media",
+            description = "Protects against pornography, explicit content, webcam sites, and adult search results.",
             accentColor = Color(0xFFDB2777),
             icon = Icons.Outlined.Block,
-            domainCount = 3_000
+            domainCount = 827,
+            subcategories = listOf(
+                CategorySubcategory("pornographic-websites", "Pornographic Websites"),
+                CategorySubcategory("adult-videos", "Adult Videos"),
+                CategorySubcategory("webcam-live-chat", "Webcam & Live Chat"),
+                CategorySubcategory("escort-hookup-sites", "Escort & Hookup Sites"),
+                CategorySubcategory("explicit-image-galleries", "Explicit Image Galleries"),
+                CategorySubcategory("nsfw-forums", "NSFW Forums"),
+                CategorySubcategory("adult-advertising", "Adult Advertising"),
+                CategorySubcategory("adult-search-results", "Adult Search Results (SafeSearch)")
+            )
         ),
         CategoryPreset(
             id = "malware-phishing",
@@ -2331,6 +2437,79 @@ private fun SettingsPageContent(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text("Protection", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Outlined.Shield,
+                    contentDescription = null,
+                    tint = Color(0xFF16835A),
+                    modifier = Modifier.size(22.dp)
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("DNS Protection", fontWeight = FontWeight.Medium)
+                    Text(
+                        "System-wide domain filtering through the ShieldFocus VPN.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Card(
+                    shape = RoundedCornerShape(6.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (protectionEnabled) Color(0xFFD1FAE5) else Color(0xFFF0F1F3)
+                    )
+                ) {
+                    Text(
+                        if (protectionEnabled) "Active" else "Inactive",
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        color = if (protectionEnabled) Color(0xFF16835A) else Color(0xFF6B7280),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Outlined.Search,
+                    contentDescription = null,
+                    tint = Color(0xFF8A929F),
+                    modifier = Modifier.size(22.dp)
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Browser Content Protection", fontWeight = FontWeight.Medium)
+                    Text(
+                        "Filters URLs, searches, and page content in supported browsers.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Card(
+                    shape = RoundedCornerShape(6.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFF0F1F3))
+                ) {
+                    Text(
+                        "Coming later",
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        color = Color(0xFF6B7280),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -2339,8 +2518,9 @@ private fun SettingsPageContent(
                 Column {
                     Text("Strict mode", fontWeight = FontWeight.Medium)
                     Text(
-                        "Block uncertain domains instead of warning.",
-                        style = MaterialTheme.typography.bodySmall
+                        "Use more cautious DNS decisions for unresolved or suspicious domains.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
                 Switch(checked = strictMode, onCheckedChange = onStrictModeToggle)
