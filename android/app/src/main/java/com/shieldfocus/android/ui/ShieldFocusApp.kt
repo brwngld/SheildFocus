@@ -1,5 +1,10 @@
 package com.shieldfocus.android.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -28,16 +34,23 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -63,6 +76,10 @@ import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.DoNotDisturbAlt
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.People
+import androidx.compose.material.icons.outlined.PlayCircleOutline
 import androidx.compose.material.icons.outlined.Rule
 import androidx.compose.material.icons.outlined.ViewList
 import com.shieldfocus.android.model.BlockingCategory
@@ -71,6 +88,7 @@ import com.shieldfocus.android.model.Decision
 import java.text.DateFormat
 import java.util.Date
 import java.util.Calendar
+import kotlinx.coroutines.flow.collect
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -113,15 +131,36 @@ fun ShieldFocusApp(
     var backupInput by remember { mutableStateOf(TextFieldValue("")) }
     var backupMessage by remember { mutableStateOf("") }
     var currentTab by remember { mutableStateOf(AppTab.Home) }
+    val contentScrollState = rememberScrollState()
+    var bottomNavigationVisible by remember { mutableStateOf(true) }
     val clipboardManager = LocalClipboardManager.current
+
+    LaunchedEffect(contentScrollState) {
+        var previousScroll = contentScrollState.value
+        snapshotFlow { contentScrollState.value }.collect { currentScroll ->
+            bottomNavigationVisible = when {
+                currentScroll == 0 -> true
+                currentScroll > previousScroll + 3 -> false
+                currentScroll < previousScroll - 3 -> true
+                else -> bottomNavigationVisible
+            }
+            previousScroll = currentScroll
+        }
+    }
 
     Scaffold(
         containerColor = Color(0xFFF3F4F6),
         bottomBar = {
-            BottomNavigationBar(
-                selectedTab = currentTab,
-                onTabSelected = { currentTab = it }
-            )
+            AnimatedVisibility(
+                visible = bottomNavigationVisible,
+                enter = fadeIn() + slideInVertically(initialOffsetY = { it }),
+                exit = fadeOut() + slideOutVertically(targetOffsetY = { it })
+            ) {
+                BottomNavigationBar(
+                    selectedTab = currentTab,
+                    onTabSelected = { currentTab = it }
+                )
+            }
         }
     ) { padding ->
         Column(
@@ -130,7 +169,7 @@ fun ShieldFocusApp(
                 .background(Color(0xFFF3F4F6))
                 .padding(padding)
                 .padding(horizontal = 16.dp, vertical = 16.dp)
-                .verticalScroll(rememberScrollState()),
+                .verticalScroll(contentScrollState),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             when (currentTab) {
@@ -148,7 +187,20 @@ fun ShieldFocusApp(
                 }
 
                 AppTab.Rules -> {
-                    RulesTabContent(
+                    RulesPageContent(
+                        blockedDomains = blockedDomains,
+                        allowedDomains = allowedDomains,
+                        categories = categories,
+                        onRemoveBlockedDomain = onRemoveBlockedDomain,
+                        onRemoveAllowedDomain = onRemoveAllowedDomain,
+                        onRemoveCategory = onRemoveCategory,
+                        onAddBlockedDomain = onAddBlockedDomain,
+                        onAddAllowedDomain = onAddAllowedDomain
+                    )
+                }
+
+                AppTab.BlockList -> {
+                    BlockListTabContent(
                         categories = categories,
                         schedules = schedules,
                         categoryInput = categoryInput,
@@ -202,42 +254,13 @@ fun ShieldFocusApp(
                     )
                 }
 
-                AppTab.Activity -> {
+                AppTab.Analytics -> {
                     DecisionLogSection(
                         logs = decisionLogs,
                         onClear = onClearDecisionLogs
                     )
                 }
 
-                AppTab.Settings -> {
-                    SettingsTabContent(
-                        protectionEnabled = protectionEnabled,
-                        strictMode = strictMode,
-                        redirectDelaySeconds = redirectDelaySeconds,
-                        autoStartOnBoot = autoStartOnBoot,
-                        loggingEnabled = loggingEnabled,
-                        onStrictModeToggle = onStrictModeToggle,
-                        onAutoStartToggle = onAutoStartToggle,
-                        onLoggingToggle = onLoggingToggle,
-                        onRequestVpnSetup = onRequestVpnSetup,
-                        backupInput = backupInput,
-                        backupMessage = backupMessage,
-                        onBackupInputChange = { backupInput = it },
-                        onExport = {
-                            clipboardManager.setText(AnnotatedString(onExportBackup()))
-                            backupMessage = "Backup copied to clipboard."
-                        },
-                        onImport = {
-                            val imported = onImportBackup(backupInput.text)
-                            backupMessage = if (imported) {
-                                backupInput = TextFieldValue("")
-                                "Backup imported successfully."
-                            } else {
-                                "Backup import failed."
-                            }
-                        }
-                    )
-                }
             }
         }
     }
@@ -431,7 +454,7 @@ private fun HomeTabContent(
             Text("Quick Actions", fontSize = 14.sp, fontWeight = FontWeight.Bold)
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                 QuickActionButton(Modifier.weight(1f), Icons.Outlined.Add, "Add Rule") { onNavigateTab(AppTab.Rules) }
-                QuickActionButton(Modifier.weight(1f), Icons.Outlined.BarChart, "View Log") { onNavigateTab(AppTab.Activity) }
+                QuickActionButton(Modifier.weight(1f), Icons.Outlined.BarChart, "View Log") { onNavigateTab(AppTab.Analytics) }
                 QuickActionButton(Modifier.weight(1f), Icons.Outlined.Schedule, "Schedules") { onNavigateTab(AppTab.Rules) }
             }
         }
@@ -442,7 +465,7 @@ private fun HomeTabContent(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text("Recent Activity", fontSize = 14.sp, fontWeight = FontWeight.Bold)
-            TextButton(onClick = { onNavigateTab(AppTab.Activity) }, contentPadding = PaddingValues(0.dp)) {
+            TextButton(onClick = { onNavigateTab(AppTab.Analytics) }, contentPadding = PaddingValues(0.dp)) {
                 Text("View all", fontSize = 12.sp, color = Color(0xFF19784F), fontWeight = FontWeight.SemiBold)
             }
         }
@@ -693,7 +716,317 @@ private fun isSameDay(timestampMillis: Long, referenceMillis: Long): Boolean {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun RulesTabContent(
+private fun RulesPageContent(
+    blockedDomains: List<String>,
+    allowedDomains: List<String>,
+    categories: List<BlockingCategory>,
+    onRemoveBlockedDomain: (String) -> Unit,
+    onRemoveAllowedDomain: (String) -> Unit,
+    onRemoveCategory: (String) -> Unit,
+    onAddBlockedDomain: (String) -> Unit,
+    onAddAllowedDomain: (String) -> Unit
+) {
+    var selectedFilter by remember { mutableStateOf(RuleFilter.All) }
+    var searchQuery by remember { mutableStateOf("") }
+    var disabledKeys by remember { mutableStateOf(emptySet<String>()) }
+    var showAddSheet by remember { mutableStateOf(false) }
+    var sheetMode by remember { mutableStateOf(RuleSheetMode.Block) }
+    var sheetDomain by remember { mutableStateOf("") }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    val rules = buildList {
+        blockedDomains.forEach { domain ->
+            add(RulesDisplayItem("blocked:$domain", domain, ruleCategoryFor(domain), true, RuleSource.Blocked))
+        }
+        allowedDomains.forEach { domain ->
+            add(RulesDisplayItem("allowed:$domain", domain, ruleCategoryFor(domain), false, RuleSource.Allowed))
+        }
+        categories.forEach { category ->
+            add(RulesDisplayItem("category:${category.id}", category.name, "Category", true, RuleSource.Category, category.id))
+        }
+    }
+    val visibleRules = rules.filter { rule ->
+        val matchesFilter = when (selectedFilter) {
+            RuleFilter.All -> true
+            RuleFilter.Blocked -> rule.blocked && rule.source != RuleSource.Category
+            RuleFilter.Allowed -> !rule.blocked
+            RuleFilter.Categories -> rule.source == RuleSource.Category
+        }
+        val matchesSearch = searchQuery.isBlank() ||
+            rule.title.contains(searchQuery, ignoreCase = true) ||
+            rule.subtitle.contains(searchQuery, ignoreCase = true)
+        matchesFilter && matchesSearch
+    }
+    val activeCount = rules.count { it.key !in disabledKeys }
+    val blockingCount = rules.count { it.blocked && it.key !in disabledKeys }
+
+    Box(modifier = Modifier.fillMaxWidth()) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text("Filter Rules", fontSize = 20.sp, lineHeight = 24.sp, fontWeight = FontWeight.Bold)
+                    Text("$activeCount rules active", fontSize = 12.sp, color = Color(0xFF9299A5))
+                }
+                Card(
+                    shape = RoundedCornerShape(10.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFD1FAE5))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 13.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(7.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Outlined.Shield, null, tint = Color(0xFF147A51), modifier = Modifier.size(14.dp))
+                        Text("$blockingCount blocking", color = Color(0xFF147A51), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                leadingIcon = {
+                    Icon(Icons.Outlined.Search, contentDescription = null, tint = Color(0xFFA0A8B5), modifier = Modifier.size(19.dp))
+                },
+                placeholder = { Text("Search domains or categories...", fontSize = 13.sp, color = Color(0xFFA0A8B5)) },
+                shape = RoundedCornerShape(12.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = Color.White,
+                    unfocusedContainerColor = Color.White,
+                    focusedBorderColor = Color(0xFFDDE2E7),
+                    unfocusedBorderColor = Color(0xFFDDE2E7)
+                )
+            )
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                RuleFilter.entries.forEach { filter ->
+                    RulesFilterChip(
+                        label = when (filter) {
+                            RuleFilter.All -> "All"
+                            RuleFilter.Blocked -> "Blocked"
+                            RuleFilter.Allowed -> "Allowed"
+                            RuleFilter.Categories -> "Categories"
+                        },
+                        selected = selectedFilter == filter,
+                        onClick = { selectedFilter = filter }
+                    )
+                }
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                visibleRules.forEach { rule ->
+                    SwipeDeleteRuleCard(
+                        key = rule.key,
+                        rule = rule,
+                        enabled = rule.key !in disabledKeys,
+                        onEnabledChange = { enabled ->
+                            disabledKeys = if (enabled) disabledKeys - rule.key else disabledKeys + rule.key
+                        },
+                        onDelete = {
+                            when (rule.source) {
+                                RuleSource.Blocked -> onRemoveBlockedDomain(rule.title)
+                                RuleSource.Allowed -> onRemoveAllowedDomain(rule.title)
+                                RuleSource.Category -> onRemoveCategory(rule.sourceId)
+                            }
+                        }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(68.dp))
+        }
+
+        Card(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .clickable {
+                    sheetMode = RuleSheetMode.Block
+                    showAddSheet = true
+                },
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF147A51))
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Outlined.Add, null, tint = Color.White, modifier = Modifier.size(22.dp))
+                Text("Add Rule", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+
+    if (showAddSheet) {
+        ModalBottomSheet(onDismissRequest = { showAddSheet = false }, sheetState = sheetState) {
+            AddRuleSheet(
+                domain = sheetDomain,
+                onDomainChange = { sheetDomain = it },
+                selectedMode = sheetMode,
+                onSelectMode = { sheetMode = it },
+                onClose = {
+                    showAddSheet = false
+                    sheetDomain = ""
+                },
+                onSubmit = {
+                    val value = sheetDomain.trim()
+                    if (value.isNotEmpty()) {
+                        if (sheetMode == RuleSheetMode.Block) onAddBlockedDomain(value) else onAddAllowedDomain(value)
+                    }
+                    showAddSheet = false
+                    sheetDomain = ""
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun RulesFilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    Card(
+        modifier = Modifier.clickable(onClick = onClick),
+        shape = RoundedCornerShape(999.dp),
+        border = if (selected) null else BorderStroke(1.dp, Color(0xFFE0E4E8)),
+        colors = CardDefaults.cardColors(containerColor = if (selected) Color(0xFF147A51) else Color.White)
+    ) {
+        Text(
+            label,
+            modifier = Modifier.padding(horizontal = 15.dp, vertical = 10.dp),
+            color = if (selected) Color.White else Color(0xFF6F7888),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SwipeDeleteRuleCard(
+    key: String,
+    rule: RulesDisplayItem,
+    enabled: Boolean,
+    onEnabledChange: (Boolean) -> Unit,
+    onDelete: () -> Unit
+) {
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            if (value == SwipeToDismissBoxValue.EndToStart) {
+                onDelete()
+                true
+            } else {
+                false
+            }
+        }
+    )
+
+    SwipeToDismissBox(
+        state = dismissState,
+        enableDismissFromStartToEnd = false,
+        enableDismissFromEndToStart = true,
+        backgroundContent = {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xFFFFDEDF), RoundedCornerShape(12.dp))
+                    .padding(end = 23.dp),
+                contentAlignment = Alignment.CenterEnd
+            ) {
+                Icon(Icons.Outlined.Delete, "Delete $key", tint = Color(0xFFEA2F36), modifier = Modifier.size(22.dp))
+            }
+        }
+    ) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, Color(0xFFE1E5E8)),
+            colors = CardDefaults.cardColors(containerColor = if (enabled) Color.White else Color(0xFFF8F9FA))
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                val iconStyle = rulesIconStyle(rule)
+                Card(
+                    shape = RoundedCornerShape(8.dp),
+                    colors = CardDefaults.cardColors(containerColor = iconStyle.first)
+                ) {
+                    Box(modifier = Modifier.size(38.dp), contentAlignment = Alignment.Center) {
+                        Icon(iconStyle.third, null, tint = iconStyle.second, modifier = Modifier.size(20.dp))
+                    }
+                }
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(rule.title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = if (enabled) Color(0xFF374151) else Color(0xFF9AA3B2))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(rule.subtitle, fontSize = 11.sp, color = Color(0xFF9AA3B2))
+                        Card(
+                            shape = RoundedCornerShape(5.dp),
+                            colors = CardDefaults.cardColors(containerColor = if (rule.blocked) Color(0xFFFFDFE1) else Color(0xFFCFF5DF))
+                        ) {
+                            Text(
+                                if (rule.blocked) "Blocked" else "Allowed",
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                                color = if (rule.blocked) Color(0xFFEF3438) else Color(0xFF16835A),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
+                Switch(
+                    checked = enabled,
+                    onCheckedChange = onEnabledChange,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color(0xFF147A51),
+                        checkedTrackColor = Color(0xFFCFF8E3),
+                        uncheckedThumbColor = Color.White,
+                        uncheckedTrackColor = Color(0xFFE4E7ED),
+                        uncheckedBorderColor = Color.Transparent
+                    )
+                )
+            }
+        }
+    }
+}
+
+private data class RulesDisplayItem(
+    val key: String,
+    val title: String,
+    val subtitle: String,
+    val blocked: Boolean,
+    val source: RuleSource,
+    val sourceId: String = title
+)
+
+private enum class RuleSource { Blocked, Allowed, Category }
+
+private fun ruleCategoryFor(domain: String): String = when {
+    domain.contains("ad", ignoreCase = true) -> "Advertising"
+    domain.contains("track", ignoreCase = true) || domain.contains("metric", ignoreCase = true) -> "Tracking"
+    domain.contains("social", ignoreCase = true) || domain.contains("facebook", ignoreCase = true) -> "Social Media"
+    domain.contains("malware", ignoreCase = true) || domain.contains("phish", ignoreCase = true) -> "Malware"
+    domain.contains("twitch", ignoreCase = true) || domain.contains("video", ignoreCase = true) -> "Streaming"
+    else -> "Development"
+}
+
+private fun rulesIconStyle(rule: RulesDisplayItem): Triple<Color, Color, androidx.compose.ui.graphics.vector.ImageVector> = when {
+    rule.source == RuleSource.Category -> Triple(Color(0xFFE5E7EB), Color(0xFF8D96A6), Icons.Outlined.People)
+    rule.subtitle == "Advertising" -> Triple(Color(0xFFFFE3E4), Color(0xFFEF3438), Icons.Outlined.DoNotDisturbAlt)
+    rule.subtitle == "Tracking" -> Triple(Color(0xFFFFF0C9), Color(0xFFE59A14), Icons.Outlined.FlashOn)
+    rule.subtitle == "Malware" -> Triple(Color(0xFFFFE0E2), Color(0xFFE52C35), Icons.Outlined.Shield)
+    rule.subtitle == "Streaming" -> Triple(Color(0xFFEAE4FF), Color(0xFF8255F6), Icons.Outlined.PlayCircleOutline)
+    else -> Triple(Color(0xFFD5F8E5), Color(0xFF16835A), Icons.Outlined.Edit)
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BlockListTabContent(
     categories: List<BlockingCategory>,
     schedules: List<BlockingSchedule>,
     categoryInput: String,
@@ -1762,6 +2095,7 @@ private fun BottomNavigationBar(
     val unselectedColor = Color(0xFF8E96A8)
 
     Card(
+        modifier = Modifier.navigationBarsPadding(),
         shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         colors = CardDefaults.cardColors(
@@ -1775,34 +2109,35 @@ private fun BottomNavigationBar(
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            AppTab.values().forEach { tab ->
+            AppTab.entries.forEach { tab ->
                 val selected = tab == selectedTab
                 Column(
                     modifier = Modifier
                         .weight(1f)
+                        .height(54.dp)
                         .clickable { onTabSelected(tab) },
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                    verticalArrangement = Arrangement.Center
                 ) {
                     Icon(
                         imageVector = tab.icon,
                         contentDescription = tab.label,
                         tint = if (selected) selectedColor else unselectedColor
                     )
-                    Text(
-                        text = tab.label,
-                        color = if (selected) selectedColor else unselectedColor,
-                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-                        fontSize = 12.sp
-                    )
                     if (selected) {
+                        Spacer(modifier = Modifier.height(3.dp))
+                        Text(
+                            text = tab.label,
+                            color = selectedColor,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 11.sp
+                        )
+                        Spacer(modifier = Modifier.height(3.dp))
                         Box(
                             modifier = Modifier
                                 .size(4.dp)
                                 .background(selectedColor, RoundedCornerShape(999.dp))
                         )
-                    } else {
-                        Spacer(modifier = Modifier.size(4.dp))
                     }
                 }
             }
@@ -1815,9 +2150,9 @@ private enum class AppTab(
     val icon: androidx.compose.ui.graphics.vector.ImageVector
 ) {
     Home("Home", Icons.Outlined.Home),
-    Rules("Blocklists", Icons.Outlined.ViewList),
-    Activity("Activity", Icons.Outlined.ShowChart),
-    Settings("Settings", Icons.Outlined.Settings)
+    Rules("Rules", Icons.Outlined.Shield),
+    BlockList("Block List", Icons.Outlined.ViewList),
+    Analytics("Analytics", Icons.Outlined.BarChart)
 }
 
 @Composable
