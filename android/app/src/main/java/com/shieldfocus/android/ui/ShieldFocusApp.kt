@@ -12,7 +12,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.verticalScroll
@@ -49,6 +51,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -87,15 +90,20 @@ import androidx.compose.material.icons.outlined.ViewList
 import com.shieldfocus.android.model.BlockingCategory
 import com.shieldfocus.android.model.BlockingSchedule
 import com.shieldfocus.android.model.Decision
+import com.shieldfocus.android.vpn.VpnConnectionState
 import java.text.DateFormat
 import java.util.Date
 import java.util.Calendar
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ShieldFocusApp(
     protectionEnabled: Boolean,
+    vpnConnectionState: VpnConnectionState,
+    vpnConnectedAtMillis: Long?,
+    vpnErrorMessage: String?,
     strictMode: Boolean,
     redirectDelaySeconds: Int,
     autoStartOnBoot: Boolean,
@@ -136,12 +144,12 @@ fun ShieldFocusApp(
     val homeScrollState = rememberScrollState()
     val rulesScrollState = rememberScrollState()
     val blockListScrollState = rememberScrollState()
-    val analyticsScrollState = rememberScrollState()
+    val activityScrollState = rememberScrollState()
     val contentScrollState = when (currentTab) {
         AppTab.Home -> homeScrollState
         AppTab.Rules -> rulesScrollState
         AppTab.BlockList -> blockListScrollState
-        AppTab.Analytics -> analyticsScrollState
+        AppTab.Activity -> activityScrollState
     }
     var bottomNavigationVisible by remember { mutableStateOf(true) }
     val clipboardManager = LocalClipboardManager.current
@@ -213,6 +221,9 @@ fun ShieldFocusApp(
                 AppTab.Home -> {
                     HomeTabContent(
                         protectionEnabled = protectionEnabled,
+                        vpnConnectionState = vpnConnectionState,
+                        vpnConnectedAtMillis = vpnConnectedAtMillis,
+                        vpnErrorMessage = vpnErrorMessage,
                         blockedDomains = blockedDomains,
                         allowedDomains = allowedDomains,
                         categories = categories,
@@ -291,7 +302,7 @@ fun ShieldFocusApp(
                     )
                 }
 
-                AppTab.Analytics -> {
+                AppTab.Activity -> {
                     DecisionLogSection(
                         logs = decisionLogs,
                         onClear = onClearDecisionLogs
@@ -307,6 +318,9 @@ fun ShieldFocusApp(
 @Composable
 private fun HomeTabContent(
     protectionEnabled: Boolean,
+    vpnConnectionState: VpnConnectionState,
+    vpnConnectedAtMillis: Long?,
+    vpnErrorMessage: String?,
     blockedDomains: List<String>,
     allowedDomains: List<String>,
     categories: List<BlockingCategory>,
@@ -321,6 +335,33 @@ private fun HomeTabContent(
     val activeRules = blockedDomains.size + allowedDomains.size + categories.sumOf { it.domains.size } + schedules.size
     val activeSchedule = schedules.firstOrNull { it.isActiveAt(now) } ?: schedules.firstOrNull { it.enabled }
     val greeting = greetingForHour(Calendar.getInstance().get(Calendar.HOUR_OF_DAY))
+    val isTransitioning = vpnConnectionState == VpnConnectionState.Connecting ||
+        vpnConnectionState == VpnConnectionState.Disconnecting
+    val uptimeSeconds by produceState(
+        initialValue = 0L,
+        key1 = vpnConnectionState,
+        key2 = vpnConnectedAtMillis
+    ) {
+        while (vpnConnectionState == VpnConnectionState.Connected && vpnConnectedAtMillis != null) {
+            value = ((System.currentTimeMillis() - vpnConnectedAtMillis) / 1000L).coerceAtLeast(0L)
+            delay(1_000L)
+        }
+    }
+    val statusLabel = when (vpnConnectionState) {
+        VpnConnectionState.Connecting -> "Connecting"
+        VpnConnectionState.Disconnecting -> "Disconnecting"
+        VpnConnectionState.Error -> "Connection Error"
+        VpnConnectionState.Connected -> "Protected"
+        VpnConnectionState.Disconnected -> "Unprotected"
+    }
+    val statusTitle = when (vpnConnectionState) {
+        VpnConnectionState.Connecting -> "VPN Connecting"
+        VpnConnectionState.Disconnecting -> "VPN Disconnecting"
+        VpnConnectionState.Error -> "VPN Error"
+        VpnConnectionState.Connected -> "VPN Active"
+        VpnConnectionState.Disconnected -> "VPN Inactive"
+    }
+    val statusIsGreen = protectionEnabled || vpnConnectionState == VpnConnectionState.Connecting
 
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Row(
@@ -358,7 +399,7 @@ private fun HomeTabContent(
             shape = RoundedCornerShape(16.dp),
             border = BorderStroke(
                 1.dp,
-                if (protectionEnabled) Color(0xFFA9D6C2) else Color(0xFFE1E5E7)
+                if (statusIsGreen) Color(0xFFA9D6C2) else Color(0xFFE1E5E7)
             ),
             colors = CardDefaults.cardColors(containerColor = Color.White)
         ) {
@@ -377,26 +418,32 @@ private fun HomeTabContent(
                                 modifier = Modifier
                                     .size(10.dp)
                                     .background(
-                                        if (protectionEnabled) Color(0xFF16835A) else Color(0xFFEF3438),
+                                        if (statusIsGreen) Color(0xFF16835A) else Color(0xFFEF3438),
                                         RoundedCornerShape(999.dp)
                                     )
                             )
                             Spacer(modifier = Modifier.size(8.dp))
                             Text(
-                                if (protectionEnabled) "Protected" else "Unprotected",
-                                color = if (protectionEnabled) Color(0xFF16835A) else Color(0xFFEF3438),
+                                statusLabel,
+                                color = if (statusIsGreen) Color(0xFF16835A) else Color(0xFFEF3438),
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold
                             )
                         }
                         Text(
-                            if (protectionEnabled) "VPN Active" else "VPN Inactive",
+                            statusTitle,
                             fontSize = 24.sp,
                             lineHeight = 29.sp,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            if (protectionEnabled) "Uptime: 0m" else "Device traffic unfiltered",
+                            when (vpnConnectionState) {
+                                VpnConnectionState.Connected -> "Uptime: ${formatUptime(uptimeSeconds)}"
+                                VpnConnectionState.Connecting -> "Starting secure DNS protection…"
+                                VpnConnectionState.Disconnecting -> "Stopping secure DNS protection…"
+                                VpnConnectionState.Error -> vpnErrorMessage ?: "Unable to change protection state"
+                                VpnConnectionState.Disconnected -> "Device traffic unfiltered"
+                            },
                             fontSize = 13.sp,
                             color = Color(0xFF8A929F)
                         )
@@ -404,7 +451,7 @@ private fun HomeTabContent(
                     Card(
                         shape = RoundedCornerShape(999.dp),
                         colors = CardDefaults.cardColors(
-                            containerColor = if (protectionEnabled) Color(0xFFDDF6E9) else Color(0xFFFFE5E6)
+                            containerColor = if (statusIsGreen) Color(0xFFDDF6E9) else Color(0xFFFFE5E6)
                         )
                     ) {
                         Box(
@@ -414,7 +461,7 @@ private fun HomeTabContent(
                             Icon(
                                 imageVector = Icons.Outlined.Shield,
                                 contentDescription = null,
-                                tint = if (protectionEnabled) Color(0xFF16835A) else Color(0xFFEF3438),
+                                tint = if (statusIsGreen) Color(0xFF16835A) else Color(0xFFEF3438),
                                 modifier = Modifier.size(26.dp)
                             )
                         }
@@ -423,17 +470,25 @@ private fun HomeTabContent(
 
                 Button(
                     onClick = { onProtectionToggle(!protectionEnabled) },
+                    enabled = !isTransitioning,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(43.dp),
                     shape = RoundedCornerShape(11.dp),
                     contentPadding = PaddingValues(0.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = if (protectionEnabled) Color(0xFFE53935) else Color(0xFF19784F)
+                        containerColor = if (protectionEnabled || vpnConnectionState == VpnConnectionState.Disconnecting) Color(0xFFE53935) else Color(0xFF19784F),
+                        disabledContainerColor = if (vpnConnectionState == VpnConnectionState.Disconnecting) Color(0xFFE53935) else Color(0xFF19784F),
+                        disabledContentColor = Color.White
                     )
                 ) {
                     Text(
-                        if (protectionEnabled) "Turn Off Protection" else "Turn On Protection",
+                        when (vpnConnectionState) {
+                            VpnConnectionState.Connecting -> "Connecting…"
+                            VpnConnectionState.Disconnecting -> "Disconnecting…"
+                            VpnConnectionState.Connected -> "Turn Off Protection"
+                            else -> "Turn On Protection"
+                        },
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -492,7 +547,7 @@ private fun HomeTabContent(
             Text("Quick Actions", fontSize = 14.sp, fontWeight = FontWeight.Bold)
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                 QuickActionButton(Modifier.weight(1f), Icons.Outlined.Add, "Add Rule") { onNavigateTab(AppTab.Rules) }
-                QuickActionButton(Modifier.weight(1f), Icons.Outlined.BarChart, "View Log") { onNavigateTab(AppTab.Analytics) }
+                QuickActionButton(Modifier.weight(1f), Icons.Outlined.BarChart, "View Log") { onNavigateTab(AppTab.Activity) }
                 QuickActionButton(Modifier.weight(1f), Icons.Outlined.Schedule, "Schedules") { onNavigateTab(AppTab.Rules) }
             }
         }
@@ -503,7 +558,7 @@ private fun HomeTabContent(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text("Recent Activity", fontSize = 14.sp, fontWeight = FontWeight.Bold)
-            TextButton(onClick = { onNavigateTab(AppTab.Analytics) }, contentPadding = PaddingValues(0.dp)) {
+            TextButton(onClick = { onNavigateTab(AppTab.Activity) }, contentPadding = PaddingValues(0.dp)) {
                 Text("View all", fontSize = 12.sp, color = Color(0xFF19784F), fontWeight = FontWeight.SemiBold)
             }
         }
@@ -742,6 +797,17 @@ private fun greetingForHour(hour: Int): String {
         in 12..16 -> "Good afternoon"
         in 17..21 -> "Good evening"
         else -> "Good night"
+    }
+}
+
+private fun formatUptime(totalSeconds: Long): String {
+    val hours = totalSeconds / 3600L
+    val minutes = (totalSeconds % 3600L) / 60L
+    val seconds = totalSeconds % 60L
+    return when {
+        hours > 0L -> "${hours}h ${minutes}m ${seconds}s"
+        minutes > 0L -> "${minutes}m ${seconds}s"
+        else -> "${seconds}s"
     }
 }
 
@@ -2197,7 +2263,7 @@ private enum class AppTab(
     Home("Home", Icons.Outlined.Home),
     Rules("Rules", Icons.Outlined.Shield),
     BlockList("Block List", Icons.Outlined.ViewList),
-    Analytics("Analytics", Icons.Outlined.BarChart)
+    Activity("Activity", Icons.Outlined.BarChart)
 }
 
 @Composable
@@ -2881,14 +2947,7 @@ private fun DecisionLogSection(
         DecisionFilter.Allowed -> visibleLogs.filter { it.allow }
     }
 
-    Card(
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -2907,11 +2966,12 @@ private fun DecisionLogSection(
                     )
                 }
                 Card(
+                    modifier = Modifier.size(42.dp),
                     shape = RoundedCornerShape(999.dp),
                     colors = CardDefaults.cardColors(containerColor = Color(0xFFD1FAE5))
                 ) {
                     Box(
-                        modifier = Modifier.padding(10.dp),
+                        modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
@@ -2930,8 +2990,10 @@ private fun DecisionLogSection(
             }
 
             Card(
+                modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(18.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
             ) {
                 Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(
@@ -2940,7 +3002,6 @@ private fun DecisionLogSection(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(chartTitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("6am - 6pm", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     ActivityLineChart(points = series)
                 }
@@ -2975,19 +3036,31 @@ private fun DecisionLogSection(
             }
 
             if (listLogs.isEmpty()) {
-                Text("No recent decisions yet", style = MaterialTheme.typography.bodyMedium)
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Text(
+                        "No recent decisions yet",
+                        modifier = Modifier.padding(16.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             } else {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     listLogs.take(8).forEach { decision ->
                         ActivityDecisionRow(decision = decision)
                     }
                 }
             }
 
-            TextButton(onClick = onClear) {
-                Text("Clear")
+            if (logs.isNotEmpty()) {
+                TextButton(onClick = onClear, modifier = Modifier.align(Alignment.End)) {
+                    Text("Clear")
+                }
             }
-        }
     }
 }
 
@@ -2999,10 +3072,10 @@ private fun ActivityWindowChip(
 ) {
     Card(
         modifier = Modifier.noRippleClickable(onClick = onClick),
-        shape = RoundedCornerShape(999.dp),
-        border = BorderStroke(1.dp, if (selected) Color(0xFF1D7A4A) else MaterialTheme.colorScheme.outlineVariant),
+        shape = RoundedCornerShape(9.dp),
+        border = if (selected) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant) else null,
         colors = CardDefaults.cardColors(
-            containerColor = if (selected) Color(0xFFE8F5EE) else MaterialTheme.colorScheme.surface
+            containerColor = if (selected) MaterialTheme.colorScheme.surface else Color.Transparent
         )
     ) {
         Text(
@@ -3024,15 +3097,15 @@ private fun DecisionFilterChip(
     Card(
         modifier = Modifier.noRippleClickable(onClick = onClick),
         shape = RoundedCornerShape(999.dp),
-        border = BorderStroke(1.dp, if (selected) Color(0xFF1D7A4A) else MaterialTheme.colorScheme.outlineVariant),
+        border = if (selected) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         colors = CardDefaults.cardColors(
-            containerColor = if (selected) Color(0xFFE8F5EE) else MaterialTheme.colorScheme.surface
+            containerColor = if (selected) Color(0xFF1D7A4A) else MaterialTheme.colorScheme.surface
         )
     ) {
         Text(
             text = label,
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-            color = if (selected) Color(0xFF1D7A4A) else MaterialTheme.colorScheme.onSurfaceVariant,
+            color = if (selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
             style = MaterialTheme.typography.labelMedium
         )
@@ -3050,19 +3123,23 @@ private fun ActivitySummaryCard(
 ) {
     Card(
         modifier = modifier.height(96.dp),
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Card(shape = RoundedCornerShape(10.dp), colors = CardDefaults.cardColors(containerColor = accent)) {
-                Box(modifier = Modifier.size(20.dp), contentAlignment = Alignment.Center) {
-                    Icon(imageVector = icon, contentDescription = null, tint = accentText)
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(value, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = accentText)
+                Card(shape = RoundedCornerShape(8.dp), colors = CardDefaults.cardColors(containerColor = accent)) {
+                    Box(modifier = Modifier.size(28.dp), contentAlignment = Alignment.Center) {
+                        Icon(imageVector = icon, contentDescription = null, tint = accentText, modifier = Modifier.size(16.dp))
+                    }
                 }
             }
-            Text(value, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
             Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
@@ -3243,41 +3320,85 @@ private fun formatMinute(minuteOfDay: Int): String {
 
 @Composable
 private fun ActivityDecisionRow(decision: Decision) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically
+    val statusColor = if (decision.allow) Color(0xFF15805B) else Color(0xFFEF3038)
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(3.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
-        Card(
-            shape = RoundedCornerShape(10.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = if (decision.allow) Color(0xFFD1FAE5) else Color(0xFFFEE2E2)
-            )
-        ) {
-            Box(
-                modifier = Modifier.size(32.dp),
-                contentAlignment = Alignment.Center
+        Row(modifier = Modifier.height(60.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.fillMaxHeight().width(3.dp).background(statusColor))
+            Row(
+                modifier = Modifier.weight(1f).padding(horizontal = 11.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = if (decision.allow) Icons.Outlined.Home else Icons.Outlined.Shield,
-                    contentDescription = null,
-                    tint = if (decision.allow) Color(0xFF0F9D58) else Color(0xFFE53935),
-                    modifier = Modifier.size(18.dp)
-                )
+                Card(
+                    shape = RoundedCornerShape(9.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (decision.allow) Color(0xFFD1FAE5) else Color(0xFFFEE2E2)
+                    )
+                ) {
+                    Box(modifier = Modifier.size(36.dp), contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = if (decision.allow) Icons.Outlined.Edit else Icons.Outlined.Shield,
+                            contentDescription = null,
+                            tint = statusColor,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(decision.domain, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, maxLines = 1)
+                    Text(
+                        decisionSubtitle(decision),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Card(
+                        shape = RoundedCornerShape(6.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (decision.allow) Color(0xFFD1FAE5) else Color(0xFFFFDEDF)
+                        )
+                    ) {
+                        Text(
+                            if (decision.allow) "Allowed" else "Blocked",
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = statusColor
+                        )
+                    }
+                    Text(
+                        formatDecisionTime(decision.timestampMillis),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
-
-        Column(modifier = Modifier.weight(1f)) {
-            Text(decision.domain, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-            Text(decision.reason, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-
-        Text(
-            text = formatRelativeTime(decision.timestampMillis),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
     }
 }
+
+private fun decisionSubtitle(decision: Decision): String {
+    val reason = decision.reason.ifBlank { if (decision.allow) "Allowlist" else "Default blocklist" }
+    val category = when {
+        decision.domain.contains("doubleclick", true) || decision.domain.contains("google", true) -> "Advertising"
+        decision.domain.contains("github", true) || decision.domain.contains("stackoverflow", true) -> "Development"
+        decision.domain.contains("snapchat", true) || decision.domain.contains("hotjar", true) -> "Tracking"
+        else -> if (decision.allow) "Development" else "Blocked request"
+    }
+    return "$category  ·  $reason"
+}
+
+private fun formatDecisionTime(timestampMillis: Long): String =
+    java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
+        .format(java.util.Date(timestampMillis))
+        .lowercase()

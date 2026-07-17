@@ -23,6 +23,23 @@ import java.net.Inet4Address
 import java.net.InetAddress
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
+enum class VpnConnectionState {
+    Disconnected,
+    Connecting,
+    Connected,
+    Disconnecting,
+    Error
+}
+
+data class VpnConnectionStatus(
+    val state: VpnConnectionState = VpnConnectionState.Disconnected,
+    val connectedAtMillis: Long? = null,
+    val errorMessage: String? = null
+)
 
 class ShieldFocusVpnService : VpnService() {
     private val running = AtomicBoolean(false)
@@ -45,7 +62,9 @@ class ShieldFocusVpnService : VpnService() {
     }
 
     override fun onDestroy() {
-        stopTunnel()
+        if (running.get()) {
+            stopTunnel()
+        }
         super.onDestroy()
     }
 
@@ -54,6 +73,8 @@ class ShieldFocusVpnService : VpnService() {
         if (!running.compareAndSet(false, true)) {
             return
         }
+
+        updateStatus(VpnConnectionState.Connecting)
 
         val generation = tunnelGeneration.incrementAndGet()
 
@@ -67,6 +88,7 @@ class ShieldFocusVpnService : VpnService() {
             )
         } catch (error: RuntimeException) {
             Log.e(TAG, "Failed to start VPN foreground service", error)
+            updateStatus(VpnConnectionState.Error, errorMessage = "Unable to start protection")
             running.set(false)
             tunnelGeneration.incrementAndGet()
             stopSelf()
@@ -78,6 +100,7 @@ class ShieldFocusVpnService : VpnService() {
                 runTunnel(generation)
             } catch (error: Exception) {
                 Log.e(TAG, "VPN worker failed", error)
+                updateStatus(VpnConnectionState.Error, errorMessage = "Protection stopped unexpectedly")
             } finally {
                 finishTunnel(generation)
             }
@@ -117,6 +140,7 @@ class ShieldFocusVpnService : VpnService() {
         }
 
         if (descriptor == null) {
+            updateStatus(VpnConnectionState.Error, errorMessage = "Unable to establish the VPN connection")
             return
         }
 
@@ -124,6 +148,8 @@ class ShieldFocusVpnService : VpnService() {
             descriptor.close()
             return
         }
+
+        updateStatus(VpnConnectionState.Connected, connectedAtMillis = System.currentTimeMillis())
 
         FileInputStream(descriptor.fileDescriptor).use { input ->
             FileOutputStream(descriptor.fileDescriptor).use { output ->
@@ -203,15 +229,20 @@ class ShieldFocusVpnService : VpnService() {
             return
         }
 
+        val wasDisconnecting = connectionStatus.value.state == VpnConnectionState.Disconnecting
         running.set(false)
         tunnel = null
         worker = null
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
+        if (wasDisconnecting || connectionStatus.value.state == VpnConnectionState.Connected) {
+            updateStatus(VpnConnectionState.Disconnected)
+        }
     }
 
     @Synchronized
     private fun stopTunnel() {
+        updateStatus(VpnConnectionState.Disconnecting)
         tunnelGeneration.incrementAndGet()
         if (!running.compareAndSet(true, false)) {
             try {
@@ -222,6 +253,7 @@ class ShieldFocusVpnService : VpnService() {
             worker = null
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
+            updateStatus(VpnConnectionState.Disconnected)
             return
         }
 
@@ -236,6 +268,7 @@ class ShieldFocusVpnService : VpnService() {
         worker = null
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
+        updateStatus(VpnConnectionState.Disconnected)
     }
 
     private fun collectDnsServers(): List<Inet4Address> {
@@ -278,8 +311,39 @@ class ShieldFocusVpnService : VpnService() {
         const val ACTION_START = "com.shieldfocus.android.vpn.action.START"
         const val ACTION_STOP = "com.shieldfocus.android.vpn.action.STOP"
 
+        private val mutableConnectionStatus = MutableStateFlow(VpnConnectionStatus())
+        val connectionStatus: StateFlow<VpnConnectionStatus> = mutableConnectionStatus.asStateFlow()
+
+        fun reportConnecting() {
+            updateStatus(VpnConnectionState.Connecting)
+        }
+
+        fun reportError(message: String) {
+            updateStatus(VpnConnectionState.Error, errorMessage = message)
+        }
+
+        fun reportDisconnecting() {
+            updateStatus(VpnConnectionState.Disconnecting)
+        }
+
+        private fun updateStatus(
+            state: VpnConnectionState,
+            connectedAtMillis: Long? = null,
+            errorMessage: String? = null
+        ) {
+            mutableConnectionStatus.value = VpnConnectionStatus(state, connectedAtMillis, errorMessage)
+        }
+
         private const val CHANNEL_ID = "shieldfocus_vpn"
         private const val NOTIFICATION_ID = 1001
         private const val TAG = "ShieldFocusVpn"
+    }
+
+    private fun updateStatus(
+        state: VpnConnectionState,
+        connectedAtMillis: Long? = null,
+        errorMessage: String? = null
+    ) {
+        Companion.updateStatus(state, connectedAtMillis, errorMessage)
     }
 }

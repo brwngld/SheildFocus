@@ -12,6 +12,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -24,6 +26,7 @@ import com.shieldfocus.android.model.ProtectionSettings
 import com.shieldfocus.android.ui.ShieldFocusApp
 import com.shieldfocus.android.ui.theme.ShieldFocusTheme
 import com.shieldfocus.android.vpn.ShieldFocusVpnService
+import com.shieldfocus.android.vpn.VpnConnectionState
 import kotlinx.coroutines.flow.collect
 
 class MainActivity : ComponentActivity() {
@@ -54,7 +57,22 @@ class MainActivity : ComponentActivity() {
             ) {
                 protectionStore.decisionHistoryFlow().collect { value = it }
             }
+            val vpnStatus by ShieldFocusVpnService.connectionStatus.collectAsState()
             var startVpnFlow: (() -> Unit)? = null
+
+            LaunchedEffect(vpnStatus.state) {
+                when (vpnStatus.state) {
+                    VpnConnectionState.Connected -> {
+                        settings = settings.copy(enabled = true)
+                        protectionStore.saveSettings(settings)
+                    }
+                    VpnConnectionState.Disconnected, VpnConnectionState.Error -> {
+                        settings = settings.copy(enabled = false)
+                        protectionStore.saveSettings(settings)
+                    }
+                    else -> Unit
+                }
+            }
 
             val vpnPermissionLauncher = rememberLauncherForActivityResult(
                 contract = ActivityResultContracts.StartActivityForResult()
@@ -64,6 +82,7 @@ class MainActivity : ComponentActivity() {
                 } else {
                     settings = settings.copy(enabled = false)
                     protectionStore.saveSettings(settings)
+                    ShieldFocusVpnService.reportError("VPN permission was not granted")
                 }
             }
 
@@ -72,10 +91,13 @@ class MainActivity : ComponentActivity() {
             ) { isGranted ->
                 if (isGranted) {
                     startVpnFlow?.invoke()
+                } else {
+                    ShieldFocusVpnService.reportError("Notification permission is required to run protection")
                 }
             }
 
             startVpnFlow = {
+                ShieldFocusVpnService.reportConnecting()
                 val prepareIntent = VpnService.prepare(this@MainActivity)
                 if (prepareIntent != null) {
                     vpnPermissionLauncher.launch(prepareIntent)
@@ -88,16 +110,21 @@ class MainActivity : ComponentActivity() {
                 ) {
                     notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                 } else {
-                    settings = settings.copy(enabled = true)
-                    protectionStore.saveSettings(settings)
-                    startVpnService()
+                    try {
+                        startVpnService()
+                    } catch (_: Exception) {
+                        ShieldFocusVpnService.reportError("Unable to start protection")
+                    }
                 }
             }
 
             fun stopProtection() {
-                settings = settings.copy(enabled = false)
-                protectionStore.saveSettings(settings)
-                stopVpnService()
+                ShieldFocusVpnService.reportDisconnecting()
+                try {
+                    stopVpnService()
+                } catch (_: Exception) {
+                    ShieldFocusVpnService.reportError("Unable to turn off protection")
+                }
             }
 
             fun updateSettings(nextSettings: ProtectionSettings) {
@@ -135,7 +162,10 @@ class MainActivity : ComponentActivity() {
 
             ShieldFocusTheme {
                 ShieldFocusApp(
-                    protectionEnabled = settings.enabled,
+                    protectionEnabled = vpnStatus.state == VpnConnectionState.Connected,
+                    vpnConnectionState = vpnStatus.state,
+                    vpnConnectedAtMillis = vpnStatus.connectedAtMillis,
+                    vpnErrorMessage = vpnStatus.errorMessage,
                     strictMode = settings.strictMode,
                     redirectDelaySeconds = settings.redirectDelaySeconds,
                     autoStartOnBoot = settings.autoStartOnBoot,
