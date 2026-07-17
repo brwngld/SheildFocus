@@ -87,6 +87,8 @@ import androidx.compose.material.icons.outlined.PauseCircleOutline
 import androidx.compose.material.icons.outlined.PlayCircleOutline
 import androidx.compose.material.icons.outlined.Rule
 import androidx.compose.material.icons.outlined.ViewList
+import androidx.compose.material.icons.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.ChevronRight
 import com.shieldfocus.android.model.BlockingCategory
 import com.shieldfocus.android.model.BlockingSchedule
 import com.shieldfocus.android.model.Decision
@@ -141,6 +143,8 @@ fun ShieldFocusApp(
     var backupInput by remember { mutableStateOf(TextFieldValue("")) }
     var backupMessage by remember { mutableStateOf("") }
     var currentTab by remember { mutableStateOf(AppTab.Home) }
+    var secondaryPage by remember { mutableStateOf<SecondaryPage?>(null) }
+    var schedulesReturnPage by remember { mutableStateOf<SecondaryPage?>(null) }
     val homeScrollState = rememberScrollState()
     val rulesScrollState = rememberScrollState()
     val blockListScrollState = rememberScrollState()
@@ -153,6 +157,10 @@ fun ShieldFocusApp(
     }
     var bottomNavigationVisible by remember { mutableStateOf(true) }
     val clipboardManager = LocalClipboardManager.current
+
+    LaunchedEffect(secondaryPage) {
+        if (secondaryPage != null) contentScrollState.scrollTo(0)
+    }
 
     LaunchedEffect(contentScrollState) {
         var previousScroll = contentScrollState.value
@@ -198,7 +206,10 @@ fun ShieldFocusApp(
                 },
                 selectedTab = currentTab,
                 onTabSelected = { tab ->
-                    if (bottomNavigationVisible) currentTab = tab
+                    if (bottomNavigationVisible) {
+                        secondaryPage = null
+                        currentTab = tab
+                    }
                 }
             )
         }
@@ -212,7 +223,48 @@ fun ShieldFocusApp(
                 .verticalScroll(contentScrollState),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Crossfade(
+            if (secondaryPage == SecondaryPage.Settings) {
+                SettingsPageContent(
+                    protectionEnabled = protectionEnabled,
+                    strictMode = strictMode,
+                    redirectDelaySeconds = redirectDelaySeconds,
+                    autoStartOnBoot = autoStartOnBoot,
+                    loggingEnabled = loggingEnabled,
+                    onBack = { secondaryPage = null },
+                    onOpenSchedules = {
+                        schedulesReturnPage = SecondaryPage.Settings
+                        secondaryPage = SecondaryPage.Schedules
+                    },
+                    onStrictModeToggle = onStrictModeToggle,
+                    onAutoStartToggle = onAutoStartToggle,
+                    onLoggingToggle = onLoggingToggle,
+                    onRequestVpnSetup = onRequestVpnSetup,
+                    backupInput = backupInput,
+                    backupMessage = backupMessage,
+                    onBackupInputChange = { backupInput = it },
+                    onExport = {
+                        backupInput = TextFieldValue(onExportBackup())
+                        backupMessage = "Backup ready"
+                    },
+                    onImport = { backupMessage = if (onImportBackup(backupInput.text)) "Backup imported" else "Import failed" }
+                )
+            } else if (secondaryPage == SecondaryPage.Schedules) {
+                SchedulesPageContent(
+                    schedules = schedules,
+                    inputValue = scheduleInput,
+                    onInputChange = { scheduleInput = it },
+                    onBack = { secondaryPage = schedulesReturnPage },
+                    onSubmit = {
+                        val value = scheduleInput.trim()
+                        if (value.isNotEmpty()) {
+                            onAddSchedule(value)
+                            scheduleInput = ""
+                        }
+                    },
+                    onRemoveSchedule = onRemoveSchedule,
+                    onUpdateSchedule = onUpdateSchedule
+                )
+            } else Crossfade(
                 targetState = currentTab,
                 animationSpec = tween(durationMillis = 180),
                 label = "tabContent"
@@ -230,7 +282,12 @@ fun ShieldFocusApp(
                         schedules = schedules,
                         decisionLogs = decisionLogs,
                         onProtectionToggle = onProtectionToggle,
-                        onNavigateTab = { currentTab = it }
+                        onNavigateTab = { currentTab = it },
+                        onOpenSettings = { secondaryPage = SecondaryPage.Settings },
+                        onOpenSchedules = {
+                            schedulesReturnPage = null
+                            secondaryPage = SecondaryPage.Schedules
+                        }
                     )
                 }
 
@@ -327,7 +384,9 @@ private fun HomeTabContent(
     schedules: List<BlockingSchedule>,
     decisionLogs: List<Decision>,
     onProtectionToggle: (Boolean) -> Unit,
-    onNavigateTab: (AppTab) -> Unit
+    onNavigateTab: (AppTab) -> Unit,
+    onOpenSettings: () -> Unit,
+    onOpenSchedules: () -> Unit
 ) {
     val now = System.currentTimeMillis()
     val blockedToday = decisionLogs.count { !it.allow && isSameDay(it.timestampMillis, now) }
@@ -377,22 +436,10 @@ private fun HomeTabContent(
                 )
                 Text("ShieldFocus", fontSize = 20.sp, lineHeight = 24.sp, fontWeight = FontWeight.Bold)
             }
-            Card(
-                shape = RoundedCornerShape(999.dp),
-                border = BorderStroke(1.dp, Color(0xFFE1E5E7)),
-                colors = CardDefaults.cardColors(containerColor = Color.White)
-            ) {
-                Box(
-                    modifier = Modifier.size(40.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Notifications,
-                        contentDescription = "Notifications",
-                        tint = Color(0xFF4B5563)
-                    )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                HomeHeaderIcon(Icons.Outlined.Notifications, "Notifications", onClick = {})
+                HomeHeaderIcon(Icons.Outlined.Settings, "Settings", onClick = onOpenSettings)
                 }
-            }
         }
 
         Card(
@@ -548,7 +595,7 @@ private fun HomeTabContent(
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                 QuickActionButton(Modifier.weight(1f), Icons.Outlined.Add, "Add Rule") { onNavigateTab(AppTab.Rules) }
                 QuickActionButton(Modifier.weight(1f), Icons.Outlined.BarChart, "View Log") { onNavigateTab(AppTab.Activity) }
-                QuickActionButton(Modifier.weight(1f), Icons.Outlined.Schedule, "Schedules") { onNavigateTab(AppTab.Rules) }
+                QuickActionButton(Modifier.weight(1f), Icons.Outlined.Schedule, "Schedules", onOpenSchedules)
             }
         }
 
@@ -724,6 +771,24 @@ private fun QuickActionButton(
                 fontSize = 11.sp,
                 fontWeight = FontWeight.SemiBold
             )
+        }
+    }
+}
+
+@Composable
+private fun HomeHeaderIcon(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier.noRippleClickable(onClick),
+        shape = RoundedCornerShape(999.dp),
+        border = BorderStroke(1.dp, Color(0xFFE1E5E7)),
+        colors = CardDefaults.cardColors(containerColor = Color.White)
+    ) {
+        Box(modifier = Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+            Icon(icon, contentDescription, tint = Color(0xFF4B5563), modifier = Modifier.size(21.dp))
         }
     }
 }
@@ -2075,13 +2140,20 @@ private enum class BlocklistSection {
     Categories
 }
 
+private enum class SecondaryPage {
+    Settings,
+    Schedules
+}
+
 @Composable
-private fun SettingsTabContent(
+private fun SettingsPageContent(
     protectionEnabled: Boolean,
     strictMode: Boolean,
     redirectDelaySeconds: Int,
     autoStartOnBoot: Boolean,
     loggingEnabled: Boolean,
+    onBack: () -> Unit,
+    onOpenSchedules: () -> Unit,
     onStrictModeToggle: (Boolean) -> Unit,
     onAutoStartToggle: (Boolean) -> Unit,
     onLoggingToggle: (Boolean) -> Unit,
@@ -2092,8 +2164,15 @@ private fun SettingsTabContent(
     onExport: () -> Unit,
     onImport: () -> Unit
 ) {
+    PageHeader(
+        title = "Settings",
+        subtitle = "Manage ShieldFocus preferences",
+        onBack = onBack
+    )
+
     Card(
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
         )
@@ -2102,7 +2181,7 @@ private fun SettingsTabContent(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text("Protection settings", style = MaterialTheme.typography.titleMedium)
+            Text("Protection", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -2144,7 +2223,8 @@ private fun SettingsTabContent(
     }
 
     Card(
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
         )
@@ -2153,7 +2233,7 @@ private fun SettingsTabContent(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text("Startup & logging", style = MaterialTheme.typography.titleMedium)
+            Text("Preferences", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -2187,6 +2267,14 @@ private fun SettingsTabContent(
         }
     }
 
+    Text("Menu", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+    SettingsMenuRow(
+        icon = Icons.Outlined.Schedule,
+        title = "Schedules",
+        subtitle = "Choose when protection rules are active",
+        onClick = onOpenSchedules
+    )
+
     BackupSection(
         backupInput = backupInput,
         backupMessage = backupMessage,
@@ -2194,6 +2282,54 @@ private fun SettingsTabContent(
         onExport = onExport,
         onImport = onImport
     )
+}
+
+@Composable
+private fun SettingsMenuRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth().noRippleClickable(onClick),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        colors = CardDefaults.cardColors(containerColor = Color.White)
+    ) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Card(shape = RoundedCornerShape(10.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFDDF6E9))) {
+                Icon(icon, null, tint = Color(0xFF16835A), modifier = Modifier.padding(9.dp).size(20.dp))
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, fontWeight = FontWeight.SemiBold)
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Icon(Icons.Outlined.ChevronRight, null, tint = Color(0xFF8A929F))
+        }
+    }
+}
+
+@Composable
+private fun PageHeader(title: String, subtitle: String, onBack: () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Card(
+            modifier = Modifier.noRippleClickable(onBack),
+            shape = RoundedCornerShape(999.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            colors = CardDefaults.cardColors(containerColor = Color.White)
+        ) {
+            Icon(Icons.Outlined.ArrowBack, "Back", modifier = Modifier.padding(10.dp).size(20.dp), tint = Color(0xFF374151))
+        }
+        Column {
+            Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
 }
 
 @Composable
@@ -2630,14 +2766,14 @@ private fun ScheduleSectionEditor(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column {
-                    Text("Schedules", style = MaterialTheme.typography.titleMedium)
-                    Text("Time windows that activate category blocks", style = MaterialTheme.typography.bodySmall)
+                    Text("Create schedule", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("Add a new protection time window", style = MaterialTheme.typography.bodySmall)
                 }
                 Button(
                     onClick = onSubmit,
                     contentPadding = PaddingValues(horizontal = 18.dp, vertical = 12.dp)
                 ) {
-                    Text("New Schedule")
+                    Text("Add")
                 }
             }
 
@@ -2664,6 +2800,33 @@ private fun ScheduleSectionEditor(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SchedulesPageContent(
+    schedules: List<BlockingSchedule>,
+    inputValue: String,
+    onInputChange: (String) -> Unit,
+    onBack: () -> Unit,
+    onSubmit: () -> Unit,
+    onRemoveSchedule: (String) -> Unit,
+    onUpdateSchedule: (String, String, Set<Int>, Int, Int, Boolean) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        PageHeader(
+            title = "Schedules",
+            subtitle = "Set when protection rules are active",
+            onBack = onBack
+        )
+        ScheduleSectionEditor(
+            schedules = schedules,
+            inputValue = inputValue,
+            onInputChange = onInputChange,
+            onSubmit = onSubmit,
+            onRemoveSchedule = onRemoveSchedule,
+            onUpdateSchedule = onUpdateSchedule
+        )
     }
 }
 
