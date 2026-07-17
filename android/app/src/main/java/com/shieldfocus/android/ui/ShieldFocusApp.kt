@@ -25,6 +25,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -615,7 +616,7 @@ private fun QuickActionButton(
     Card(
         modifier = modifier
             .height(70.dp)
-            .clickable(onClick = onClick),
+            .noRippleClickable(onClick = onClick),
         shape = RoundedCornerShape(12.dp),
         border = BorderStroke(1.dp, Color(0xFFE1E5E7)),
         colors = CardDefaults.cardColors(containerColor = Color.White)
@@ -845,7 +846,7 @@ private fun RulesPageContent(
         Card(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .clickable {
+                .noRippleClickable {
                     sheetMode = RuleSheetMode.Block
                     showAddSheet = true
                 },
@@ -890,7 +891,7 @@ private fun RulesPageContent(
 @Composable
 private fun RulesFilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
     Card(
-        modifier = Modifier.clickable(onClick = onClick),
+        modifier = Modifier.noRippleClickable(onClick = onClick),
         shape = RoundedCornerShape(999.dp),
         border = if (selected) null else BorderStroke(1.dp, Color(0xFFE0E4E8)),
         colors = CardDefaults.cardColors(containerColor = if (selected) Color(0xFF147A51) else Color.White)
@@ -1200,7 +1201,7 @@ private fun BlockListTabContent(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(8.dp)
-                .clickable {
+                .noRippleClickable {
                     sheetMode = RuleSheetMode.Block
                     showAddSheet = true
                 },
@@ -1257,7 +1258,7 @@ private fun BlocklistSectionTab(
     onClick: () -> Unit
 ) {
     Column(
-        modifier = modifier.clickable(onClick = onClick),
+        modifier = modifier.noRippleClickable(onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
@@ -1757,7 +1758,7 @@ private fun FilterChip(
     onClick: () -> Unit
 ) {
     Card(
-        modifier = Modifier.clickable(onClick = onClick),
+        modifier = Modifier.noRippleClickable(onClick = onClick),
         shape = RoundedCornerShape(999.dp),
         border = BorderStroke(1.dp, if (selected) Color(0xFF1D7A4A) else MaterialTheme.colorScheme.outlineVariant),
         colors = CardDefaults.cardColors(
@@ -1899,8 +1900,10 @@ private fun AddRuleSheet(
 
         Button(
             onClick = onSubmit,
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(14.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp),
+            shape = RoundedCornerShape(18.dp),
             colors = ButtonDefaults.buttonColors(
                 containerColor = if (selectedMode == RuleSheetMode.Block) Color(0xFF1D7A4A).copy(alpha = 0.95f) else Color(0xFF1D7A4A)
             )
@@ -1924,25 +1927,30 @@ private fun RuleModeButton(
     onClick: () -> Unit
 ) {
     Card(
-        modifier = modifier.clickable(onClick = onClick),
+        modifier = modifier.noRippleClickable(onClick = onClick),
         shape = RoundedCornerShape(16.dp),
         border = BorderStroke(1.dp, if (selected) selectedTextColor else MaterialTheme.colorScheme.outlineVariant),
         colors = CardDefaults.cardColors(containerColor = if (selected) selectedColor else MaterialTheme.colorScheme.surfaceVariant)
     ) {
         Column(
-            modifier = Modifier.padding(vertical = 18.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(64.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            verticalArrangement = Arrangement.Center
         ) {
             Icon(
                 imageVector = if (label == "Block") Icons.Outlined.Block else Icons.Outlined.CheckCircleOutline,
                 contentDescription = null,
-                tint = if (selected) selectedTextColor else MaterialTheme.colorScheme.onSurfaceVariant
+                tint = if (selected) selectedTextColor else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(19.dp)
             )
+            Spacer(modifier = Modifier.height(4.dp))
             Text(
                 label,
                 color = if (selected) selectedTextColor else MaterialTheme.colorScheme.onSurfaceVariant,
-                fontWeight = FontWeight.SemiBold
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 12.sp
             )
         }
     }
@@ -2115,7 +2123,7 @@ private fun BottomNavigationBar(
                     modifier = Modifier
                         .weight(1f)
                         .height(54.dp)
-                        .clickable { onTabSelected(tab) },
+                        .noRippleClickable { onTabSelected(tab) },
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
@@ -2154,6 +2162,13 @@ private enum class AppTab(
     BlockList("Block List", Icons.Outlined.ViewList),
     Analytics("Analytics", Icons.Outlined.BarChart)
 }
+
+@Composable
+private fun Modifier.noRippleClickable(onClick: () -> Unit): Modifier = clickable(
+    interactionSource = remember { MutableInteractionSource() },
+    indication = null,
+    onClick = onClick
+)
 
 @Composable
 private fun StatusCard(
@@ -2946,7 +2961,7 @@ private fun ActivityWindowChip(
     onClick: () -> Unit
 ) {
     Card(
-        modifier = Modifier.clickable(onClick = onClick),
+        modifier = Modifier.noRippleClickable(onClick = onClick),
         shape = RoundedCornerShape(999.dp),
         border = BorderStroke(1.dp, if (selected) Color(0xFF1D7A4A) else MaterialTheme.colorScheme.outlineVariant),
         colors = CardDefaults.cardColors(
@@ -2970,7 +2985,7 @@ private fun DecisionFilterChip(
     onClick: () -> Unit
 ) {
     Card(
-        modifier = Modifier.clickable(onClick = onClick),
+        modifier = Modifier.noRippleClickable(onClick = onClick),
         shape = RoundedCornerShape(999.dp),
         border = BorderStroke(1.dp, if (selected) Color(0xFF1D7A4A) else MaterialTheme.colorScheme.outlineVariant),
         colors = CardDefaults.cardColors(
