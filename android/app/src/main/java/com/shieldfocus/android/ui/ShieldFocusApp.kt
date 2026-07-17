@@ -895,6 +895,7 @@ private fun RulesPageContent(
     var showAddSheet by remember { mutableStateOf(false) }
     var sheetMode by remember { mutableStateOf(RuleSheetMode.Block) }
     var sheetDomain by remember { mutableStateOf("") }
+    var editingRule by remember { mutableStateOf<RulesDisplayItem?>(null) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     val rules = buildList {
@@ -991,6 +992,14 @@ private fun RulesPageContent(
                         onEnabledChange = { enabled ->
                             disabledKeys = if (enabled) disabledKeys - rule.key else disabledKeys + rule.key
                         },
+                        onEdit = if (rule.source == RuleSource.Category) null else {
+                            {
+                                editingRule = rule
+                                sheetDomain = rule.title
+                                sheetMode = if (rule.blocked) RuleSheetMode.Block else RuleSheetMode.Allow
+                                showAddSheet = true
+                            }
+                        },
                         onDelete = {
                             when (rule.source) {
                                 RuleSource.Blocked -> onRemoveBlockedDomain(rule.title)
@@ -1009,6 +1018,7 @@ private fun RulesPageContent(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .noRippleClickable {
+                    editingRule = null
                     sheetMode = RuleSheetMode.Block
                     showAddSheet = true
                 },
@@ -1032,18 +1042,28 @@ private fun RulesPageContent(
                 domain = sheetDomain,
                 onDomainChange = { sheetDomain = it },
                 selectedMode = sheetMode,
+                editing = editingRule != null,
                 onSelectMode = { sheetMode = it },
                 onClose = {
                     showAddSheet = false
                     sheetDomain = ""
+                    editingRule = null
                 },
                 onSubmit = {
                     val value = sheetDomain.trim()
                     if (value.isNotEmpty()) {
+                        editingRule?.let { original ->
+                            when (original.source) {
+                                RuleSource.Blocked -> onRemoveBlockedDomain(original.title)
+                                RuleSource.Allowed -> onRemoveAllowedDomain(original.title)
+                                RuleSource.Category -> Unit
+                            }
+                        }
                         if (sheetMode == RuleSheetMode.Block) onAddBlockedDomain(value) else onAddAllowedDomain(value)
                     }
                     showAddSheet = false
                     sheetDomain = ""
+                    editingRule = null
                 }
             )
         }
@@ -1075,6 +1095,7 @@ private fun SwipeDeleteRuleCard(
     rule: RulesDisplayItem,
     enabled: Boolean,
     onEnabledChange: (Boolean) -> Unit,
+    onEdit: (() -> Unit)?,
     onDelete: () -> Unit
 ) {
     val dismissState = rememberSwipeToDismissBoxState(
@@ -1140,6 +1161,21 @@ private fun SwipeDeleteRuleCard(
                                 fontWeight = FontWeight.SemiBold
                             )
                         }
+                    }
+                }
+                if (onEdit != null) {
+                    Card(
+                        modifier = Modifier.noRippleClickable(onEdit),
+                        shape = RoundedCornerShape(7.dp),
+                        border = BorderStroke(1.dp, Color(0xFFDDE2E7)),
+                        colors = CardDefaults.cardColors(containerColor = Color.White)
+                    ) {
+                        Icon(
+                            Icons.Outlined.Edit,
+                            "Edit ${rule.title}",
+                            tint = Color(0xFF16835A),
+                            modifier = Modifier.padding(8.dp).size(17.dp)
+                        )
                     }
                 }
                 Switch(
@@ -2011,6 +2047,7 @@ private fun AddRuleSheet(
     domain: String,
     onDomainChange: (String) -> Unit,
     selectedMode: RuleSheetMode,
+    editing: Boolean = false,
     onSelectMode: (RuleSheetMode) -> Unit,
     onClose: () -> Unit,
     onSubmit: () -> Unit
@@ -2019,7 +2056,7 @@ private fun AddRuleSheet(
         modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text("Add Domain Rule", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+        Text(if (editing) "Edit Domain Rule" else "Add Domain Rule", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
         Text(
             "Enter a domain to block or allow across all browsers.",
             style = MaterialTheme.typography.bodyMedium,
@@ -2069,7 +2106,9 @@ private fun AddRuleSheet(
                 containerColor = if (selectedMode == RuleSheetMode.Block) Color(0xFF1D7A4A).copy(alpha = 0.95f) else Color(0xFF1D7A4A)
             )
         ) {
-            Text(if (selectedMode == RuleSheetMode.Block) "Block Domain" else "Allow Domain")
+            Text(
+                if (editing) "Save Domain" else if (selectedMode == RuleSheetMode.Block) "Block Domain" else "Allow Domain"
+            )
         }
 
         TextButton(onClick = onClose, modifier = Modifier.fillMaxWidth()) {
