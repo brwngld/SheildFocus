@@ -29,7 +29,10 @@ private val KEY_ENABLED = booleanPreferencesKey("enabled")
 private val KEY_STRICT_MODE = booleanPreferencesKey("strict_mode")
 private val KEY_REDIRECT_DELAY = intPreferencesKey("redirect_delay")
 private val KEY_AUTO_START_ON_BOOT = booleanPreferencesKey("auto_start_on_boot")
+private val KEY_RESTART_AFTER_INTERRUPTION = booleanPreferencesKey("restart_after_interruption")
 private val KEY_LOGGING_ENABLED = booleanPreferencesKey("logging_enabled")
+private val KEY_ACTIVITY_RETENTION_DAYS = intPreferencesKey("activity_retention_days")
+private val KEY_HIDE_SENSITIVE_DOMAINS = booleanPreferencesKey("hide_sensitive_domains")
 private val KEY_BLOCKED_DOMAINS = stringSetPreferencesKey("blocked_domains")
 private val KEY_ALLOWED_DOMAINS = stringSetPreferencesKey("allowed_domains")
 private val KEY_CATEGORIES = stringPreferencesKey("blocking_categories")
@@ -75,7 +78,10 @@ class ProtectionStore(context: Context) {
             strictMode = preferences[KEY_STRICT_MODE] ?: true,
             redirectDelaySeconds = preferences[KEY_REDIRECT_DELAY] ?: 5,
             autoStartOnBoot = preferences[KEY_AUTO_START_ON_BOOT] ?: false,
-            loggingEnabled = preferences[KEY_LOGGING_ENABLED] ?: true
+            restartAfterInterruption = preferences[KEY_RESTART_AFTER_INTERRUPTION] ?: true,
+            loggingEnabled = preferences[KEY_LOGGING_ENABLED] ?: true,
+            activityRetentionDays = preferences[KEY_ACTIVITY_RETENTION_DAYS] ?: 30,
+            hideSensitiveDomains = preferences[KEY_HIDE_SENSITIVE_DOMAINS] ?: false
         )
     }
 
@@ -85,7 +91,10 @@ class ProtectionStore(context: Context) {
             preferences[KEY_STRICT_MODE] = settings.strictMode
             preferences[KEY_REDIRECT_DELAY] = settings.redirectDelaySeconds
             preferences[KEY_AUTO_START_ON_BOOT] = settings.autoStartOnBoot
+            preferences[KEY_RESTART_AFTER_INTERRUPTION] = settings.restartAfterInterruption
             preferences[KEY_LOGGING_ENABLED] = settings.loggingEnabled
+            preferences[KEY_ACTIVITY_RETENTION_DAYS] = settings.activityRetentionDays.coerceIn(1, 90)
+            preferences[KEY_HIDE_SENSITIVE_DOMAINS] = settings.hideSensitiveDomains
         }
     }
 
@@ -117,7 +126,7 @@ class ProtectionStore(context: Context) {
             .flatMap { it.domains }
             .toSet()
         val activeCategoryIds = preferences[KEY_ACTIVE_PRESET_CATEGORIES]
-            ?: setOf("adult-content", "malware-phishing", "gambling")
+            ?: setOf("adult-content")
         val activeAdultSubcategories = preferences[KEY_ACTIVE_ADULT_SUBCATEGORIES]
             ?: DEFAULT_ADULT_SUBCATEGORIES
         val bundledAdultDomains = if ("adult-content" in activeCategoryIds) {
@@ -167,7 +176,7 @@ class ProtectionStore(context: Context) {
 
     fun loadActivePresetCategoryIds(): Set<String> = runBlocking {
         dataStore.data.first()[KEY_ACTIVE_PRESET_CATEGORIES]
-            ?: setOf("adult-content", "malware-phishing", "gambling")
+            ?: setOf("adult-content")
     }
 
     fun saveActivePresetCategoryIds(ids: Set<String>) = runBlocking {
@@ -353,7 +362,12 @@ class ProtectionStore(context: Context) {
 
     fun appendDecision(decision: Decision) = runBlocking {
         dataStore.edit { preferences ->
-            val current = decodeDecisionHistory(preferences[KEY_DECISION_LOGS].orEmpty()).toMutableList()
+            val retentionDays = preferences[KEY_ACTIVITY_RETENTION_DAYS] ?: 30
+            val oldestAllowedTimestamp = System.currentTimeMillis() -
+                retentionDays.coerceIn(1, 90) * 24L * 60L * 60L * 1_000L
+            val current = decodeDecisionHistory(preferences[KEY_DECISION_LOGS].orEmpty())
+                .filter { it.timestampMillis >= oldestAllowedTimestamp }
+                .toMutableList()
             current.add(0, decision)
             preferences[KEY_DECISION_LOGS] = encodeDecisionHistory(current.take(MAX_LOG_ENTRIES))
         }
@@ -375,7 +389,10 @@ class ProtectionStore(context: Context) {
                 put("strictMode", settings.strictMode)
                 put("redirectDelaySeconds", settings.redirectDelaySeconds)
                 put("autoStartOnBoot", settings.autoStartOnBoot)
+                put("restartAfterInterruption", settings.restartAfterInterruption)
                 put("loggingEnabled", settings.loggingEnabled)
+                put("activityRetentionDays", settings.activityRetentionDays)
+                put("hideSensitiveDomains", settings.hideSensitiveDomains)
             })
             .put("blockedDomains", JSONArray(loadBlockedDomains().sorted()))
             .put("allowedDomains", JSONArray(loadAllowedDomains().sorted()))
@@ -426,7 +443,10 @@ class ProtectionStore(context: Context) {
                 strictMode = settingsObject.optBoolean("strictMode", true),
                 redirectDelaySeconds = settingsObject.optInt("redirectDelaySeconds", 5),
                 autoStartOnBoot = settingsObject.optBoolean("autoStartOnBoot", false),
-                loggingEnabled = settingsObject.optBoolean("loggingEnabled", true)
+                restartAfterInterruption = settingsObject.optBoolean("restartAfterInterruption", true),
+                loggingEnabled = settingsObject.optBoolean("loggingEnabled", true),
+                activityRetentionDays = settingsObject.optInt("activityRetentionDays", 30).coerceIn(1, 90),
+                hideSensitiveDomains = settingsObject.optBoolean("hideSensitiveDomains", false)
             )
 
             val blockedDomains = readJsonStringSet(root.optJSONArray("blockedDomains"))

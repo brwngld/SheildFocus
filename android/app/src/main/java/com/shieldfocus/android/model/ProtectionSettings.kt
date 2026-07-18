@@ -5,5 +5,8 @@ data class ProtectionSettings(
     val strictMode: Boolean = true,
     val redirectDelaySeconds: Int = 5,
     val autoStartOnBoot: Boolean = false,
-    val loggingEnabled: Boolean = true
+    val restartAfterInterruption: Boolean = true,
+    val loggingEnabled: Boolean = true,
+    val activityRetentionDays: Int = 30,
+    val hideSensitiveDomains: Boolean = false
 )

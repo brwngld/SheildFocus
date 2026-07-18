@@ -52,7 +52,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -98,7 +97,6 @@ import java.text.DateFormat
 import java.util.Date
 import java.util.Calendar
 import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -110,7 +108,10 @@ fun ShieldFocusApp(
     strictMode: Boolean,
     redirectDelaySeconds: Int,
     autoStartOnBoot: Boolean,
+    restartAfterInterruption: Boolean,
     loggingEnabled: Boolean,
+    activityRetentionDays: Int,
+    hideSensitiveDomains: Boolean,
     blockedDomains: List<String>,
     allowedDomains: List<String>,
     categories: List<BlockingCategory>,
@@ -122,7 +123,11 @@ fun ShieldFocusApp(
     onProtectionToggle: (Boolean) -> Unit,
     onStrictModeToggle: (Boolean) -> Unit,
     onAutoStartToggle: (Boolean) -> Unit,
+    onRestartAfterInterruptionToggle: (Boolean) -> Unit,
     onLoggingToggle: (Boolean) -> Unit,
+    onActivityRetentionDaysChange: (Int) -> Unit,
+    onHideSensitiveDomainsToggle: (Boolean) -> Unit,
+    onOpenVpnSettings: () -> Unit,
     onRequestVpnSetup: () -> Unit,
     onAddBlockedDomain: (String) -> Unit,
     onRemoveBlockedDomain: (String) -> Unit,
@@ -152,6 +157,11 @@ fun ShieldFocusApp(
     var currentTab by remember { mutableStateOf(AppTab.Home) }
     var secondaryPage by remember { mutableStateOf<SecondaryPage?>(null) }
     var schedulesReturnPage by remember { mutableStateOf<SecondaryPage?>(null) }
+    val visibleDecisionLogs = if (hideSensitiveDomains) {
+        decisionLogs.map { decision -> decision.copy(domain = maskDomain(decision.domain)) }
+    } else {
+        decisionLogs
+    }
     val homeScrollState = rememberScrollState()
     val rulesScrollState = rememberScrollState()
     val blockListScrollState = rememberScrollState()
@@ -236,7 +246,10 @@ fun ShieldFocusApp(
                     strictMode = strictMode,
                     redirectDelaySeconds = redirectDelaySeconds,
                     autoStartOnBoot = autoStartOnBoot,
+                    restartAfterInterruption = restartAfterInterruption,
                     loggingEnabled = loggingEnabled,
+                    activityRetentionDays = activityRetentionDays,
+                    hideSensitiveDomains = hideSensitiveDomains,
                     onBack = { secondaryPage = null },
                     onOpenSchedules = {
                         schedulesReturnPage = SecondaryPage.Settings
@@ -244,7 +257,11 @@ fun ShieldFocusApp(
                     },
                     onStrictModeToggle = onStrictModeToggle,
                     onAutoStartToggle = onAutoStartToggle,
+                    onRestartAfterInterruptionToggle = onRestartAfterInterruptionToggle,
                     onLoggingToggle = onLoggingToggle,
+                    onActivityRetentionDaysChange = onActivityRetentionDaysChange,
+                    onHideSensitiveDomainsToggle = onHideSensitiveDomainsToggle,
+                    onOpenVpnSettings = onOpenVpnSettings,
                     onRequestVpnSetup = onRequestVpnSetup,
                     backupInput = backupInput,
                     backupMessage = backupMessage,
@@ -281,7 +298,7 @@ fun ShieldFocusApp(
                         allowedDomains = allowedDomains,
                         categories = categories,
                         schedules = schedules,
-                        decisionLogs = decisionLogs,
+                        decisionLogs = visibleDecisionLogs,
                         onProtectionToggle = onProtectionToggle,
                         onNavigateTab = { currentTab = it },
                         onOpenSettings = { secondaryPage = SecondaryPage.Settings },
@@ -368,7 +385,7 @@ fun ShieldFocusApp(
 
                 AppTab.Activity -> {
                     DecisionLogSection(
-                        logs = decisionLogs,
+                        logs = visibleDecisionLogs,
                         onClear = onClearDecisionLogs
                     )
                 }
@@ -400,34 +417,32 @@ private fun HomeTabContent(
     val requestsToday = decisionLogs.count { isSameDay(it.timestampMillis, now) }
     val activeRules = blockedDomains.size + allowedDomains.size + categories.sumOf { it.domains.size } + schedules.size
     val activeSchedule = schedules.firstOrNull { it.isActiveAt(now) } ?: schedules.firstOrNull { it.enabled }
+    val recentActivity = decisionLogs
+        .groupBy { Triple(it.domain, it.allow, it.reason) }
+        .map { (_, decisions) ->
+            GroupedDecision(decision = decisions.maxBy { it.timestampMillis }, count = decisions.size)
+        }
+        .sortedByDescending { it.decision.timestampMillis }
+        .take(3)
     val greeting = greetingForHour(Calendar.getInstance().get(Calendar.HOUR_OF_DAY))
     val isTransitioning = vpnConnectionState == VpnConnectionState.Connecting ||
         vpnConnectionState == VpnConnectionState.Disconnecting
-    val uptimeSeconds by produceState(
-        initialValue = 0L,
-        key1 = vpnConnectionState,
-        key2 = vpnConnectedAtMillis
-    ) {
-        while (vpnConnectionState == VpnConnectionState.Connected && vpnConnectedAtMillis != null) {
-            value = ((System.currentTimeMillis() - vpnConnectedAtMillis) / 1000L).coerceAtLeast(0L)
-            delay(1_000L)
-        }
-    }
     val statusLabel = when (vpnConnectionState) {
         VpnConnectionState.Connecting -> "Connecting"
         VpnConnectionState.Disconnecting -> "Disconnecting"
-        VpnConnectionState.Error -> "Connection Error"
+        VpnConnectionState.Error -> "Needs attention"
         VpnConnectionState.Connected -> "Protected"
-        VpnConnectionState.Disconnected -> "Unprotected"
+        VpnConnectionState.Disconnected -> "Not protected"
     }
     val statusTitle = when (vpnConnectionState) {
-        VpnConnectionState.Connecting -> "VPN Connecting"
-        VpnConnectionState.Disconnecting -> "VPN Disconnecting"
-        VpnConnectionState.Error -> "VPN Error"
-        VpnConnectionState.Connected -> "VPN Active"
-        VpnConnectionState.Disconnected -> "VPN Inactive"
+        VpnConnectionState.Connecting -> "Starting Protection"
+        VpnConnectionState.Disconnecting -> "Pausing Protection"
+        VpnConnectionState.Error -> "Protection Interrupted"
+        VpnConnectionState.Connected -> "Protection Active"
+        VpnConnectionState.Disconnected -> "Protection Off"
     }
-    val statusIsGreen = protectionEnabled || vpnConnectionState == VpnConnectionState.Connecting
+    val statusIsGreen = vpnConnectionState == VpnConnectionState.Connected ||
+        vpnConnectionState == VpnConnectionState.Connecting
 
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Row(
@@ -492,11 +507,11 @@ private fun HomeTabContent(
                         )
                         Text(
                             when (vpnConnectionState) {
-                                VpnConnectionState.Connected -> "Uptime: ${formatUptime(uptimeSeconds)}"
-                                VpnConnectionState.Connecting -> "Starting secure DNS protection…"
-                                VpnConnectionState.Disconnecting -> "Stopping secure DNS protection…"
+                                VpnConnectionState.Connected -> "Adult content is being blocked across supported apps and browsers."
+                                VpnConnectionState.Connecting -> "Starting device-wide content protection…"
+                                VpnConnectionState.Disconnecting -> "Pausing device-wide content protection…"
                                 VpnConnectionState.Error -> vpnErrorMessage ?: "Unable to change protection state"
-                                VpnConnectionState.Disconnected -> "Device traffic unfiltered"
+                                VpnConnectionState.Disconnected -> "Adult websites are not currently being filtered."
                             },
                             fontSize = 13.sp,
                             color = Color(0xFF8A929F)
@@ -523,7 +538,7 @@ private fun HomeTabContent(
                 }
 
                 Button(
-                    onClick = { onProtectionToggle(!protectionEnabled) },
+                    onClick = { onProtectionToggle(vpnConnectionState != VpnConnectionState.Connected) },
                     enabled = !isTransitioning,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -531,16 +546,17 @@ private fun HomeTabContent(
                     shape = RoundedCornerShape(11.dp),
                     contentPadding = PaddingValues(0.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = if (protectionEnabled || vpnConnectionState == VpnConnectionState.Disconnecting) Color(0xFFE53935) else Color(0xFF19784F),
-                        disabledContainerColor = if (vpnConnectionState == VpnConnectionState.Disconnecting) Color(0xFFE53935) else Color(0xFF19784F),
+                        containerColor = if (vpnConnectionState == VpnConnectionState.Connected) Color(0xFFD97706) else Color(0xFF19784F),
+                        disabledContainerColor = if (vpnConnectionState == VpnConnectionState.Disconnecting) Color(0xFFD97706) else Color(0xFF19784F),
                         disabledContentColor = Color.White
                     )
                 ) {
                     Text(
                         when (vpnConnectionState) {
-                            VpnConnectionState.Connecting -> "Connecting…"
-                            VpnConnectionState.Disconnecting -> "Disconnecting…"
-                            VpnConnectionState.Connected -> "Turn Off Protection"
+                            VpnConnectionState.Connecting -> "Starting…"
+                            VpnConnectionState.Disconnecting -> "Pausing…"
+                            VpnConnectionState.Error -> "Restart Protection"
+                            VpnConnectionState.Connected -> "Pause Protection"
                             else -> "Turn On Protection"
                         },
                         fontSize = 14.sp,
@@ -548,17 +564,17 @@ private fun HomeTabContent(
                     )
                 }
 
-                if (protectionEnabled) {
+                if (vpnConnectionState == VpnConnectionState.Connected) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         StatusPill(
                             icon = Icons.Outlined.ViewList,
-                            label = "DNS Filter",
+                            label = "Adult Filter",
                             value = "On"
                         )
                         StatusPill(
                             icon = Icons.Outlined.Schedule,
                             label = "Schedule",
-                            value = activeSchedule?.name ?: "Work Mode"
+                            value = activeSchedule?.name ?: "Always active"
                         )
                     }
                 }
@@ -571,14 +587,14 @@ private fun HomeTabContent(
                 icon = Icons.Outlined.DoNotDisturbAlt,
                 iconTint = Color(0xFF6B7280),
                 value = blockedToday.toString(),
-                label = "Blocked Today"
+                label = "Requests Blocked Today"
             )
             HomeStatCard(
                 modifier = Modifier.weight(1f),
                 icon = Icons.Outlined.BarChart,
                 iconTint = Color(0xFF6B7280),
                 value = requestsToday.toString(),
-                label = "Requests Today"
+                label = "Requests Checked"
             )
         }
 
@@ -592,7 +608,7 @@ private fun HomeTabContent(
             )
             HomeScheduleCard(
                 modifier = Modifier.weight(1f),
-                scheduleName = activeSchedule?.name ?: "Work Mode",
+                scheduleName = activeSchedule?.name ?: "Always On",
                 active = activeSchedule != null
             )
         }
@@ -601,7 +617,7 @@ private fun HomeTabContent(
             Text("Quick Actions", fontSize = 14.sp, fontWeight = FontWeight.Bold)
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                 QuickActionButton(Modifier.weight(1f), Icons.Outlined.Add, "Add Rule") { onNavigateTab(AppTab.Rules) }
-                QuickActionButton(Modifier.weight(1f), Icons.Outlined.BarChart, "View Log") { onNavigateTab(AppTab.Activity) }
+                QuickActionButton(Modifier.weight(1f), Icons.Outlined.BarChart, "View Activity") { onNavigateTab(AppTab.Activity) }
                 QuickActionButton(Modifier.weight(1f), Icons.Outlined.Schedule, "Schedules", onOpenSchedules)
             }
         }
@@ -622,15 +638,18 @@ private fun HomeTabContent(
             border = BorderStroke(1.dp, Color(0xFFE1E5E7)),
             colors = CardDefaults.cardColors(containerColor = Color.White)
         ) {
-            if (decisionLogs.isEmpty()) {
-                Text(
-                    "No activity yet",
-                    modifier = Modifier.padding(16.dp),
-                    style = MaterialTheme.typography.bodyMedium
-                )
+            if (recentActivity.isEmpty()) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("No activity recorded yet", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                    Text(
+                        "Protected requests will appear here while ShieldFocus is running.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             } else {
                 Column {
-                    decisionLogs.take(3).forEach { decision -> RecentActivityItem(decision) }
+                    recentActivity.forEach { item -> RecentActivityItem(item.decision, item.count) }
                 }
             }
         }
@@ -800,8 +819,10 @@ private fun HomeHeaderIcon(
     }
 }
 
+private data class GroupedDecision(val decision: Decision, val count: Int)
+
 @Composable
-private fun RecentActivityItem(decision: Decision) {
+private fun RecentActivityItem(decision: Decision, count: Int) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -827,7 +848,14 @@ private fun RecentActivityItem(decision: Decision) {
 
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(decision.domain, fontSize = 14.sp, lineHeight = 17.sp, fontWeight = FontWeight.Medium)
-                Text(decision.reason, fontSize = 11.sp, color = Color(0xFF9299A5))
+                Text(
+                    buildString {
+                        append(humanReadableDecisionReason(decision))
+                        if (count > 1) append(" · $count requests")
+                    },
+                    fontSize = 11.sp,
+                    color = Color(0xFF9299A5)
+                )
             }
 
             Column(horizontalAlignment = Alignment.End) {
@@ -872,17 +900,6 @@ private fun greetingForHour(hour: Int): String {
     }
 }
 
-private fun formatUptime(totalSeconds: Long): String {
-    val hours = totalSeconds / 3600L
-    val minutes = (totalSeconds % 3600L) / 60L
-    val seconds = totalSeconds % 60L
-    return when {
-        hours > 0L -> "${hours}h ${minutes}m ${seconds}s"
-        minutes > 0L -> "${minutes}m ${seconds}s"
-        else -> "${seconds}s"
-    }
-}
-
 private fun isSameDay(timestampMillis: Long, referenceMillis: Long): Boolean {
     val a = Calendar.getInstance().apply { timeInMillis = timestampMillis }
     val b = Calendar.getInstance().apply { timeInMillis = referenceMillis }
@@ -918,16 +935,13 @@ private fun RulesPageContent(
         allowedDomains.forEach { domain ->
             add(RulesDisplayItem("allowed:$domain", domain, ruleCategoryFor(domain), false, RuleSource.Allowed))
         }
-        categories.forEach { category ->
-            add(RulesDisplayItem("category:${category.id}", category.name, "Category", true, RuleSource.Category, category.id))
-        }
     }
     val visibleRules = rules.filter { rule ->
         val matchesFilter = when (selectedFilter) {
             RuleFilter.All -> true
-            RuleFilter.Blocked -> rule.blocked && rule.source != RuleSource.Category
+            RuleFilter.Blocked -> rule.blocked
             RuleFilter.Allowed -> !rule.blocked
-            RuleFilter.Categories -> rule.source == RuleSource.Category
+            RuleFilter.Disabled -> rule.key in disabledKeys
         }
         val matchesSearch = searchQuery.isBlank() ||
             rule.title.contains(searchQuery, ignoreCase = true) ||
@@ -971,7 +985,7 @@ private fun RulesPageContent(
                 leadingIcon = {
                     Icon(Icons.Outlined.Search, contentDescription = null, tint = Color(0xFFA0A8B5), modifier = Modifier.size(19.dp))
                 },
-                placeholder = { Text("Search domains or categories...", fontSize = 13.sp, color = Color(0xFFA0A8B5)) },
+                placeholder = { Text("Search custom rules...", fontSize = 13.sp, color = Color(0xFFA0A8B5)) },
                 shape = RoundedCornerShape(12.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedContainerColor = Color.White,
@@ -988,7 +1002,7 @@ private fun RulesPageContent(
                             RuleFilter.All -> "All"
                             RuleFilter.Blocked -> "Blocked"
                             RuleFilter.Allowed -> "Allowed"
-                            RuleFilter.Categories -> "Categories"
+                            RuleFilter.Disabled -> "Disabled"
                         },
                         selected = selectedFilter == filter,
                         onClick = { selectedFilter = filter }
@@ -1283,7 +1297,8 @@ private fun BlockListTabContent(
             ?: if (preset.id == "adult-content") preset.domainCount else 0)
     }
     val activeBlockedCount = blockedDomains.distinct().size + activeCategoryIds.sumOf { actualCategoryDomainCounts[it] ?: 0 }
-    val activeCategoryCount = activeCategoryIds.size
+    val availableCategoryIds = actualCategoryDomainCounts.filterValues { it > 0 }.keys
+    val activeCategoryCount = activeCategoryIds.intersect(availableCategoryIds).size
 
     Box(
         modifier = Modifier.fillMaxSize()
@@ -1340,7 +1355,7 @@ private fun BlockListTabContent(
             ) {
                 BlocklistSectionTab(
                     modifier = Modifier.weight(1f),
-                    label = "Default Lists",
+                    label = "Protection Lists",
                     selected = selectedSection == BlocklistSection.DefaultLists,
                     onClick = { selectedSection = BlocklistSection.DefaultLists }
                 )
@@ -1355,14 +1370,15 @@ private fun BlockListTabContent(
             when (selectedSection) {
                 BlocklistSection.DefaultLists -> {
                     BlocklistHeroCard(
-                        title = "Pre-built Blocklists",
-                        subtitle = "Tap a list to import and activate it instantly",
+                        title = "Protection Lists",
+                        subtitle = "Enable available categories from each protection source",
                         icon = Icons.Outlined.ViewList
                     )
 
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         defaultPresets.forEach { preset ->
-                            val enabled = preset.categoryIds.any { it in activeCategoryIds }
+                            val availablePresetCategoryIds = preset.categoryIds.intersect(availableCategoryIds)
+                            val enabled = availablePresetCategoryIds.any { it in activeCategoryIds }
                             val domainCount = preset.categoryIds.sumOf { actualCategoryDomainCounts[it] ?: 0 }
                             BlocklistPresetCard(
                                 preset = preset.copy(meta = "${compactCount(domainCount)} domains - Category bundle"),
@@ -1371,13 +1387,13 @@ private fun BlockListTabContent(
                                 activeCategoryIds = activeCategoryIds,
                                 onImport = {
                                     onImportedPresetIdsChange(importedPresetIds + preset.id)
-                                    onActiveCategoryIdsChange(activeCategoryIds + preset.categoryIds)
+                                    onActiveCategoryIdsChange(activeCategoryIds + availablePresetCategoryIds)
                                 },
                                 onEnabledChange = { enabled ->
                                     onActiveCategoryIdsChange(if (enabled) {
-                                        activeCategoryIds + preset.categoryIds
+                                        activeCategoryIds + availablePresetCategoryIds
                                     } else {
-                                        activeCategoryIds - preset.categoryIds
+                                        activeCategoryIds - availablePresetCategoryIds
                                     })
                                 }
                             )
@@ -1394,12 +1410,16 @@ private fun BlockListTabContent(
 
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         categoryPresets.forEach { preset ->
-                            val checked = activeCategoryIds.contains(preset.id)
+                            val checked = preset.id in activeCategoryIds && preset.id in availableCategoryIds
                             CategoryPresetCard(
                                 preset = preset.copy(
-                                    meta = "${compactCount(actualCategoryDomainCounts[preset.id] ?: 0)} domains - ${preset.meta.substringAfter(" - ", preset.meta)}"
+                                    meta = (actualCategoryDomainCounts[preset.id] ?: 0).let { count ->
+                                        if (count > 0) "$count domains - ${preset.meta.substringAfter(" - ", preset.meta)}"
+                                        else "Protection data not installed"
+                                    }
                                 ),
                                 checked = checked,
+                                available = preset.id in availableCategoryIds,
                                 activeSubcategoryIds = if (preset.id == "adult-content") activeAdultSubcategoryIds else emptySet(),
                                 onActiveSubcategoryIdsChange = onActiveAdultSubcategoryIdsChange,
                                 onCheckedChange = { enabled ->
@@ -1618,7 +1638,7 @@ private fun BlocklistPresetCard(
                         colors = CardDefaults.cardColors(containerColor = tagColors.first)
                     ) {
                         Text(
-                            text = tag,
+                            text = if (categoryId != null && categoryId !in activeCategoryIds) "$tag Off" else tag,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                             color = tagColors.second,
                             style = MaterialTheme.typography.labelSmall,
@@ -1659,6 +1679,7 @@ private fun BlocklistPresetCard(
 
 private fun categoryIdForBlocklistTag(tag: String): String? = when (tag.lowercase()) {
     "adult" -> "adult-content"
+    "safesearch", "family safe" -> "adult-content"
     "malware", "security", "phishing" -> "malware-phishing"
     "gambling" -> "gambling"
     "ads" -> "ad-networks"
@@ -1676,6 +1697,7 @@ private fun categoryIdForBlocklistTag(tag: String): String? = when (tag.lowercas
 private fun CategoryPresetCard(
     preset: CategoryPreset,
     checked: Boolean,
+    available: Boolean,
     activeSubcategoryIds: Set<String>,
     onActiveSubcategoryIdsChange: (Set<String>) -> Unit,
     onCheckedChange: (Boolean) -> Unit
@@ -1748,7 +1770,7 @@ private fun CategoryPresetCard(
                     Icon(Icons.Outlined.Edit, "Edit ${preset.name}", tint = preset.accentColor, modifier = Modifier.padding(8.dp).size(17.dp))
                 }
             }
-            Switch(checked = checked, onCheckedChange = onCheckedChange)
+            Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = available)
         }
     }
     if (showEditSheet) {
@@ -2382,7 +2404,7 @@ private enum class RuleFilter {
     All,
     Blocked,
     Allowed,
-    Categories
+    Disabled
 }
 
 private enum class RuleSheetMode {
@@ -2406,12 +2428,19 @@ private fun SettingsPageContent(
     strictMode: Boolean,
     redirectDelaySeconds: Int,
     autoStartOnBoot: Boolean,
+    restartAfterInterruption: Boolean,
     loggingEnabled: Boolean,
+    activityRetentionDays: Int,
+    hideSensitiveDomains: Boolean,
     onBack: () -> Unit,
     onOpenSchedules: () -> Unit,
     onStrictModeToggle: (Boolean) -> Unit,
     onAutoStartToggle: (Boolean) -> Unit,
+    onRestartAfterInterruptionToggle: (Boolean) -> Unit,
     onLoggingToggle: (Boolean) -> Unit,
+    onActivityRetentionDaysChange: (Int) -> Unit,
+    onHideSensitiveDomainsToggle: (Boolean) -> Unit,
+    onOpenVpnSettings: () -> Unit,
     onRequestVpnSetup: () -> Unit,
     backupInput: TextFieldValue,
     backupMessage: String,
@@ -2584,6 +2613,24 @@ private fun SettingsPageContent(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Restart after interruption", fontWeight = FontWeight.Medium)
+                    Text(
+                        "Restore protection if Android stops the service unexpectedly.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                Switch(
+                    checked = restartAfterInterruption,
+                    onCheckedChange = onRestartAfterInterruptionToggle
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Column {
                     Text("Decision logging", fontWeight = FontWeight.Medium)
                     Text(
@@ -2592,6 +2639,43 @@ private fun SettingsPageContent(
                     )
                 }
                 Switch(checked = loggingEnabled, onCheckedChange = onLoggingToggle)
+            }
+
+            if (loggingEnabled) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Activity retention", fontWeight = FontWeight.Medium)
+                    Text(
+                        "Automatically remove locally stored activity after the selected period.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(7, 30, 90).forEach { days ->
+                            SettingsChoiceChip(
+                                label = "$days days",
+                                selected = activityRetentionDays == days,
+                                onClick = { onActivityRetentionDaysChange(days) }
+                            )
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Hide sensitive domains", fontWeight = FontWeight.Medium)
+                        Text(
+                            "Mask domain names in activity views on this device.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    Switch(
+                        checked = hideSensitiveDomains,
+                        onCheckedChange = onHideSensitiveDomainsToggle
+                    )
+                }
             }
         }
     }
@@ -2603,6 +2687,18 @@ private fun SettingsPageContent(
         subtitle = "Choose when protection rules are active",
         onClick = onOpenSchedules
     )
+    SettingsMenuRow(
+        icon = Icons.Outlined.Shield,
+        title = "Always-on VPN & lockdown",
+        subtitle = "Prevent connections when ShieldFocus protection is unavailable",
+        onClick = onOpenVpnSettings
+    )
+
+    Text(
+        "In Android VPN settings, select ShieldFocus, enable Always-on VPN, then enable Block connections without VPN for the strongest enforcement.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
 
     BackupSection(
         backupInput = backupInput,
@@ -2611,6 +2707,26 @@ private fun SettingsPageContent(
         onExport = onExport,
         onImport = onImport
     )
+}
+
+@Composable
+private fun SettingsChoiceChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    Card(
+        modifier = Modifier.noRippleClickable(onClick),
+        shape = RoundedCornerShape(999.dp),
+        border = if (selected) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        colors = CardDefaults.cardColors(
+            containerColor = if (selected) Color(0xFF147A51) else MaterialTheme.colorScheme.surface
+        )
+    ) {
+        Text(
+            label,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+            color = if (selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
 }
 
 @Composable
@@ -3096,7 +3212,7 @@ private fun ScheduleSectionEditor(
             ) {
                 Column {
                     Text("Your schedules", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text("Search or add a protection time window", style = MaterialTheme.typography.bodySmall)
+                    Text("Search or add a stricter protection window", style = MaterialTheme.typography.bodySmall)
                 }
                 Button(
                     onClick = onAdd,
@@ -3150,7 +3266,7 @@ private fun SchedulesPageContent(
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         PageHeader(
             title = "Schedules",
-            subtitle = "Set when protection rules are active",
+            subtitle = "Add stricter rules while adult protection stays active",
             onBack = onBack
         )
         ScheduleSectionEditor(
@@ -3195,6 +3311,11 @@ private fun AddScheduleSheet(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text(if (initialSchedule == null) "New Schedule" else "Edit Schedule", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Text(
+            "Schedules activate assigned custom categories. Baseline Adult Content protection remains active.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
         Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
             Text("Name", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
             OutlinedTextField(
@@ -3685,6 +3806,7 @@ private fun DecisionLogSection(
 ) {
     var selectedWindow by remember { mutableStateOf(ActivityWindow.Today) }
     var selectedFilter by remember { mutableStateOf(DecisionFilter.All) }
+    var searchQuery by remember { mutableStateOf("") }
     val now = System.currentTimeMillis()
     val visibleLogs = logs
         .filter { isWithinActivityWindow(it.timestampMillis, selectedWindow, now) }
@@ -3698,11 +3820,19 @@ private fun DecisionLogSection(
         ActivityWindow.SevenDays -> "Blocked Requests / Day"
         ActivityWindow.ThirtyDays -> "Blocked Requests / Day"
     }
-    val listLogs = when (selectedFilter) {
+    val filteredListLogs = when (selectedFilter) {
         DecisionFilter.All -> visibleLogs
         DecisionFilter.Blocked -> visibleLogs.filter { !it.allow }
         DecisionFilter.Allowed -> visibleLogs.filter { it.allow }
+    }.filter { decision ->
+        searchQuery.isBlank() || decision.domain.contains(searchQuery.trim(), ignoreCase = true)
     }
+    val groupedListLogs = filteredListLogs
+        .groupBy { Triple(it.domain, it.allow, it.reason) }
+        .map { (_, decisions) ->
+            GroupedDecision(decision = decisions.maxBy { it.timestampMillis }, count = decisions.size)
+        }
+        .sortedByDescending { it.decision.timestampMillis }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(
@@ -3714,9 +3844,9 @@ private fun DecisionLogSection(
                     Text("Activity Log", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
                     Text(
                         when (selectedWindow) {
-                            ActivityWindow.Today -> "$total DNS decisions today"
-                            ActivityWindow.SevenDays -> "$total DNS decisions in 7 days"
-                            ActivityWindow.ThirtyDays -> "$total DNS decisions in 30 days"
+                            ActivityWindow.Today -> "$total requests checked today"
+                            ActivityWindow.SevenDays -> "$total requests checked in 7 days"
+                            ActivityWindow.ThirtyDays -> "$total requests checked in 30 days"
                         },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -3760,7 +3890,22 @@ private fun DecisionLogSection(
                     ) {
                         Text(chartTitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    ActivityLineChart(points = series)
+                    if (blocked == 0) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text("No blocked activity in this period", fontWeight = FontWeight.Medium)
+                            Text(
+                                "Protection is active. Blocked requests will appear here.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    } else {
+                        ActivityLineChart(points = series)
+                    }
                 }
             }
 
@@ -3770,14 +3915,24 @@ private fun DecisionLogSection(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text("Summary", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Text("Daily ▾", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Selected period", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                ActivitySummaryCard(modifier = Modifier.weight(1f), value = blocked.toString(), label = "Blocked\nToday", icon = Icons.Outlined.Block, accent = Color(0xFFFEE2E2), accentText = Color(0xFFE53935))
-                ActivitySummaryCard(modifier = Modifier.weight(1f), value = allowed.toString(), label = "Allowed\nToday", icon = Icons.Outlined.CheckCircleOutline, accent = Color(0xFFD1FAE5), accentText = Color(0xFF0F9D58))
-                ActivitySummaryCard(modifier = Modifier.weight(1f), value = total.toString(), label = "Total DNS\nToday", icon = Icons.Outlined.BarChart, accent = Color(0xFFF3F4F6), accentText = Color(0xFF1F2937))
+                ActivitySummaryCard(modifier = Modifier.weight(1f), value = blocked.toString(), label = "Blocked", icon = Icons.Outlined.Block, accent = Color(0xFFFEE2E2), accentText = Color(0xFFE53935))
+                ActivitySummaryCard(modifier = Modifier.weight(1f), value = allowed.toString(), label = "Allowed", icon = Icons.Outlined.CheckCircleOutline, accent = Color(0xFFD1FAE5), accentText = Color(0xFF0F9D58))
+                ActivitySummaryCard(modifier = Modifier.weight(1f), value = total.toString(), label = "Total Checked", icon = Icons.Outlined.BarChart, accent = Color(0xFFF3F4F6), accentText = Color(0xFF1F2937))
             }
+
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
+                placeholder = { Text("Search domains") },
+                shape = RoundedCornerShape(12.dp)
+            )
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -3792,7 +3947,7 @@ private fun DecisionLogSection(
                 }
             }
 
-            if (listLogs.isEmpty()) {
+            if (groupedListLogs.isEmpty()) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
@@ -3807,8 +3962,8 @@ private fun DecisionLogSection(
                 }
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listLogs.take(8).forEach { decision ->
-                        ActivityDecisionRow(decision = decision)
+                    groupedListLogs.take(8).forEach { item ->
+                        ActivityDecisionRow(decision = item.decision, count = item.count)
                     }
                 }
             }
@@ -4076,7 +4231,7 @@ private fun formatMinute(minuteOfDay: Int): String {
 }
 
 @Composable
-private fun ActivityDecisionRow(decision: Decision) {
+private fun ActivityDecisionRow(decision: Decision, count: Int) {
     val statusColor = if (decision.allow) Color(0xFF15805B) else Color(0xFFEF3038)
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -4110,7 +4265,10 @@ private fun ActivityDecisionRow(decision: Decision) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(decision.domain, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, maxLines = 1)
                     Text(
-                        decisionSubtitle(decision),
+                        buildString {
+                            append(decisionSubtitle(decision))
+                            if (count > 1) append(" · $count requests")
+                        },
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -4145,7 +4303,7 @@ private fun ActivityDecisionRow(decision: Decision) {
 }
 
 private fun decisionSubtitle(decision: Decision): String {
-    val reason = decision.reason.ifBlank { if (decision.allow) "Allowlist" else "Default blocklist" }
+    val reason = humanReadableDecisionReason(decision)
     val category = when {
         decision.domain.contains("doubleclick", true) || decision.domain.contains("google", true) -> "Advertising"
         decision.domain.contains("github", true) || decision.domain.contains("stackoverflow", true) -> "Development"
@@ -4153,6 +4311,22 @@ private fun decisionSubtitle(decision: Decision): String {
         else -> if (decision.allow) "Development" else "Blocked request"
     }
     return "$category  ·  $reason"
+}
+
+private fun humanReadableDecisionReason(decision: Decision): String = when (decision.reason) {
+    "allowlist" -> "Allowed by Custom Rule"
+    "blocked-domain" -> "Blocked by Adult Content"
+    "blocked-domain-variant" -> "Blocked by Strong Adult Protection"
+    "allow-strict", "allow" -> "Allowed · no matching block rule"
+    "invalid-hostname" -> "Allowed · invalid domain"
+    else -> decision.reason.ifBlank {
+        if (decision.allow) "Allowed · no matching block rule" else "Blocked request"
+    }
+}
+
+private fun maskDomain(domain: String): String {
+    val labels = domain.split('.')
+    return if (labels.size >= 2) "••••.${labels.last()}" else "••••"
 }
 
 private fun formatDecisionTime(timestampMillis: Long): String =

@@ -78,6 +78,41 @@ So Android v1 should focus on:
 - Category lists
 - Optional DNS-based classification
 
+## Strict Blocking: Current Coverage and Limitations
+
+Strict Mode currently strengthens domain filtering by:
+
+- Blocking exact domains and all of their subdomains
+- Detecting the same site label across alternative top-level domains
+- Detecting common numbered, mirror, proxy, official, and unblocked variants
+- Intercepting IPv4 DNS requests sent to the device resolver and a bounded set of well-known public resolvers
+- Restarting the VPN automatically when Strict Mode changes so the new routes and policy take effect
+- Supporting Android Always-on VPN and the system's **Block connections without VPN** lockdown option
+
+Strict Mode is deliberately implemented without a default VPN route. The current tunnel understands IPv4 UDP DNS packets; routing all device traffic into it would drop unsupported TCP, IPv6, and general application traffic.
+
+The following bypasses or limitations remain:
+
+- **Unknown DNS-over-HTTPS providers:** ShieldFocus fails closed for encrypted connections to the known resolver IPs it routes, but an app can use another DoH provider or relay that is not yet known to ShieldFocus.
+- **IPv6 DNS:** The current packet codec and response builder support IPv4 UDP DNS only. IPv6 resolver traffic is not yet intercepted.
+- **DNS over TCP:** DNS clients that fall back to TCP are not currently forwarded by the tunnel.
+- **Direct-IP access:** A connection made directly to a server IP may not reveal a hostname, so it cannot be classified reliably by the domain policy.
+- **Changing aliases:** Adult sites can introduce unrelated mirror names that contain no recognizable blocked-domain label. Updated curated lists are still required.
+- **Explicit allow rules:** A custom allow rule intentionally takes precedence over strict domain-family blocking.
+
+### Strict Blocking Roadmap
+
+Implement these as separate, tested phases to avoid breaking device connectivity:
+
+1. Add IPv6 UDP DNS parsing, blocking responses, routes, and packet-level tests.
+2. Add DNS-over-TCP handling for routed resolver addresses.
+3. Maintain an updateable local list of known DoH resolver hostnames and IP addresses.
+4. Detect and fail closed on unsupported encrypted-DNS traffic only when Strict Mode is enabled.
+5. Evaluate a full dual-stack traffic-forwarding tunnel for hostname-to-IP correlation and direct-IP enforcement.
+6. Add authentication around custom allow rules and protection changes when Protection Lock is enabled.
+
+Do not claim that ShieldFocus blocks every possible endpoint until the dual-stack and encrypted-DNS phases are complete. Android Always-on VPN with **Block connections without VPN** should remain the recommended strongest configuration.
+
 ## Avoid For v1
 
 These are not the foundation for ShieldFocus Android:

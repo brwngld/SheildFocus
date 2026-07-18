@@ -78,6 +78,74 @@ class DomainLogicTest {
     }
 
     @Test
+    fun strictModeBlocksSameSiteLabelAcrossAlternativeTlds() {
+        listOf(
+            "xvideos.net",
+            "xvideos.xyz",
+            "www.xvideos.co.uk"
+        ).forEach { hostname ->
+            val decision = DomainPolicy.decide(
+                hostname = hostname,
+                blockedDomains = setOf("xvideos.com"),
+                allowedDomains = emptySet(),
+                strictMode = true
+            )
+
+            assertFalse(hostname, decision.allow)
+            assertEquals("blocked-domain-variant", decision.reason)
+        }
+    }
+
+    @Test
+    fun strictModeBlocksRecognizedMirrorAndProxyAffixes() {
+        listOf(
+            "xvideos-mirror2.net",
+            "official-xvideos.org",
+            "xvideos-unblocked.site"
+        ).forEach { hostname ->
+            val decision = DomainPolicy.decide(
+                hostname = hostname,
+                blockedDomains = setOf("xvideos.com"),
+                allowedDomains = emptySet(),
+                strictMode = true
+            )
+
+            assertFalse(hostname, decision.allow)
+        }
+    }
+
+    @Test
+    fun strictModeAvoidsUnrelatedDomainsContainingBlockedLabel() {
+        listOf(
+            "notxvideosreview.com",
+            "xvideosafety.example",
+            "xvideos.safe-example.com"
+        ).forEach { hostname ->
+            val decision = DomainPolicy.decide(
+                hostname = hostname,
+                blockedDomains = setOf("xvideos.com"),
+                allowedDomains = emptySet(),
+                strictMode = true
+            )
+
+            assertTrue(hostname, decision.allow)
+        }
+    }
+
+    @Test
+    fun explicitAllowRuleStillOverridesStrictDomainFamilyBlock() {
+        val decision = DomainPolicy.decide(
+            hostname = "xvideos-mirror.net",
+            blockedDomains = setOf("xvideos.com"),
+            allowedDomains = setOf("xvideos-mirror.net"),
+            strictMode = true
+        )
+
+        assertTrue(decision.allow)
+        assertEquals("allowlist", decision.reason)
+    }
+
+    @Test
     fun numberedVariantRemainsAllowedWhenStrictModeIsOff() {
         val decision = DomainPolicy.decide(
             hostname = "xvideos2.com",

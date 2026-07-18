@@ -8,6 +8,24 @@ data class PolicyDecision(
 )
 
 object DomainPolicy {
+    private val recognizedVariantAffixes = setOf(
+        "alt",
+        "free",
+        "go",
+        "mirror",
+        "my",
+        "new",
+        "official",
+        "online",
+        "proxy",
+        "site",
+        "the",
+        "tv",
+        "unblocked",
+        "xxx"
+    )
+    private val commonCountryCodeSecondLevelDomains = setOf("co", "com", "net", "org")
+
     private val defaultBlockedDomains = setOf(
         "example-adult.com",
         "adult.example"
@@ -33,7 +51,7 @@ object DomainPolicy {
             return PolicyDecision(allow = false, reason = "blocked-domain")
         }
 
-        if (strictMode && allBlockedDomains.any { matchesEmbeddedVariant(normalized, it) }) {
+        if (strictMode && allBlockedDomains.any { matchesDomainFamilyVariant(normalized, it) }) {
             return PolicyDecision(allow = false, reason = "blocked-domain-variant")
         }
 
@@ -45,7 +63,7 @@ object DomainPolicy {
         return normalizedRule.isNotBlank() && (hostname == normalizedRule || hostname.endsWith(".$normalizedRule"))
     }
 
-    private fun matchesEmbeddedVariant(hostname: String, rule: String): Boolean {
+    private fun matchesDomainFamilyVariant(hostname: String, rule: String): Boolean {
         val normalizedRule = DomainNormalizer.normalize(rule)
         if (normalizedRule.isBlank()) return false
 
@@ -55,11 +73,34 @@ object DomainPolicy {
         val hostnameLabels = hostname.split('.')
         if (hostnameLabels.size < 2) return false
 
-        return hostnameLabels
-            .dropLast(1)
-            .map { it.filter(Char::isLetterOrDigit) }
-            .any { candidateLabel ->
-                candidateLabel.length > blockedLabel.length && blockedLabel in candidateLabel
-            }
+        val registrableLabelIndex = if (
+            hostnameLabels.last().length == 2 &&
+            hostnameLabels.size >= 3 &&
+            hostnameLabels[hostnameLabels.lastIndex - 1] in commonCountryCodeSecondLevelDomains
+        ) {
+            hostnameLabels.lastIndex - 2
+        } else {
+            hostnameLabels.lastIndex - 1
+        }
+        val candidateLabel = hostnameLabels[registrableLabelIndex].filter(Char::isLetterOrDigit)
+        if (candidateLabel == blockedLabel) return true
+
+        val blockedIndex = candidateLabel.indexOf(blockedLabel)
+        if (blockedIndex < 0) return false
+
+        val prefix = candidateLabel.substring(0, blockedIndex)
+        val suffix = candidateLabel.substring(blockedIndex + blockedLabel.length)
+        if (prefix.isEmpty() && suffix.isEmpty()) return true
+
+        return isRecognizedVariantAffix(prefix) && isRecognizedVariantAffix(suffix)
+    }
+
+    private fun isRecognizedVariantAffix(value: String): Boolean {
+        if (value.isEmpty() || value.all(Char::isDigit)) return true
+        return recognizedVariantAffixes.any { marker ->
+            value == marker ||
+                value.removePrefix(marker).all(Char::isDigit) ||
+                value.removeSuffix(marker).all(Char::isDigit)
+        }
     }
 }

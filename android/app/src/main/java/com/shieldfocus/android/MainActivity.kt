@@ -68,6 +68,7 @@ class MainActivity : ComponentActivity() {
             }
             val vpnStatus by ShieldFocusVpnService.connectionStatus.collectAsState()
             var startVpnFlow: (() -> Unit)? = null
+            var restartAfterStrictModeChange by remember { mutableStateOf(false) }
 
             LaunchedEffect(vpnStatus.state) {
                 when (vpnStatus.state) {
@@ -78,6 +79,13 @@ class MainActivity : ComponentActivity() {
                     VpnConnectionState.Disconnected, VpnConnectionState.Error -> {
                         settings = settings.copy(enabled = false)
                         protectionStore.saveSettings(settings)
+                        if (
+                            vpnStatus.state == VpnConnectionState.Disconnected &&
+                            restartAfterStrictModeChange
+                        ) {
+                            restartAfterStrictModeChange = false
+                            startVpnFlow?.invoke()
+                        }
                     }
                     else -> Unit
                 }
@@ -178,7 +186,10 @@ class MainActivity : ComponentActivity() {
                     strictMode = settings.strictMode,
                     redirectDelaySeconds = settings.redirectDelaySeconds,
                     autoStartOnBoot = settings.autoStartOnBoot,
+                    restartAfterInterruption = settings.restartAfterInterruption,
                     loggingEnabled = settings.loggingEnabled,
+                    activityRetentionDays = settings.activityRetentionDays,
+                    hideSensitiveDomains = settings.hideSensitiveDomains,
                     blockedDomains = blockedDomains,
                     allowedDomains = allowedDomains,
                     categories = categories,
@@ -196,12 +207,28 @@ class MainActivity : ComponentActivity() {
                     },
                     onStrictModeToggle = { enabled ->
                         updateSettings(settings.copy(strictMode = enabled))
+                        if (vpnStatus.state == VpnConnectionState.Connected) {
+                            restartAfterStrictModeChange = true
+                            stopProtection()
+                        }
                     },
                     onAutoStartToggle = { enabled ->
                         updateSettings(settings.copy(autoStartOnBoot = enabled))
                     },
+                    onRestartAfterInterruptionToggle = { enabled ->
+                        updateSettings(settings.copy(restartAfterInterruption = enabled))
+                    },
                     onLoggingToggle = { enabled ->
                         updateSettings(settings.copy(loggingEnabled = enabled))
+                    },
+                    onActivityRetentionDaysChange = { days ->
+                        updateSettings(settings.copy(activityRetentionDays = days.coerceIn(1, 90)))
+                    },
+                    onHideSensitiveDomainsToggle = { enabled ->
+                        updateSettings(settings.copy(hideSensitiveDomains = enabled))
+                    },
+                    onOpenVpnSettings = {
+                        startActivity(Intent(android.provider.Settings.ACTION_VPN_SETTINGS))
                     },
                     onRequestVpnSetup = {
                         startVpnFlow?.invoke()

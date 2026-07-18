@@ -18,6 +18,7 @@ coverage/
 # Android / Gradle generated files
 .gradle/
 .gradle-home/
+.gradle-codex*/
 **/build/
 local.properties
 captures/

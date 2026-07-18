@@ -53,6 +53,12 @@ class ShieldFocusVpnService : VpnService() {
         when (intent?.action) {
             ACTION_START -> startTunnel()
             ACTION_STOP -> stopTunnel()
+            null -> {
+                val settings = ProtectionStore(applicationContext).loadSettings()
+                if (settings.enabled && settings.restartAfterInterruption) {
+                    startTunnel()
+                }
+            }
         }
 
         return START_STICKY
@@ -116,12 +122,14 @@ class ShieldFocusVpnService : VpnService() {
         val store = ProtectionStore(applicationContext)
         val settings = store.loadSettings()
         val allowedDomains = store.loadAllowedDomains()
-        val dnsServers = collectDnsServers().ifEmpty {
+        val networkDnsServers = collectDnsServers().ifEmpty {
             listOf(
                 InetAddress.getByName("1.1.1.1") as Inet4Address,
                 InetAddress.getByName("8.8.8.8") as Inet4Address
             )
         }
+        val dnsServers = (networkDnsServers + if (settings.strictMode) strictDnsResolvers() else emptyList())
+            .distinctBy { it.hostAddress }
 
         val builder = Builder()
             .setSession("ShieldFocus DNS Filter")
@@ -290,6 +298,12 @@ class ShieldFocusVpnService : VpnService() {
         return linkProperties.dnsServers.filterIsInstance<Inet4Address>()
     }
 
+    private fun strictDnsResolvers(): List<Inet4Address> {
+        return STRICT_DNS_RESOLVER_ADDRESSES.mapNotNull { address ->
+            runCatching { InetAddress.getByName(address) as? Inet4Address }.getOrNull()
+        }
+    }
+
     private fun createNotificationChannel() {
         val channel = NotificationChannel(
             CHANNEL_ID,
@@ -360,6 +374,18 @@ class ShieldFocusVpnService : VpnService() {
         private const val CHANNEL_ID = "shieldfocus_vpn"
         private const val NOTIFICATION_ID = 1001
         private const val TAG = "ShieldFocusVpn"
+        private val STRICT_DNS_RESOLVER_ADDRESSES = listOf(
+            "1.1.1.1",
+            "1.0.0.1",
+            "8.8.8.8",
+            "8.8.4.4",
+            "9.9.9.9",
+            "149.112.112.112",
+            "94.140.14.14",
+            "94.140.15.15",
+            "208.67.222.222",
+            "208.67.220.220"
+        )
     }
 
     private fun updateStatus(
