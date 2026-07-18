@@ -87,7 +87,7 @@ Strict Mode currently strengthens domain filtering by:
 - Detecting common numbered, mirror, proxy, official, and unblocked variants
 - Intercepting direct IPv4 and IPv6 UDP DNS requests sent to the device resolver and a bounded set of well-known public resolvers
 - Restarting the VPN automatically when Strict Mode changes so the new routes and policy take effect
-- Supporting Android Always-on VPN and the system's **Block connections without VPN** lockdown option
+- A future full-tunnel forwarder before supporting Android Always-on VPN lockdown
 
 Strict Mode is deliberately implemented without a default VPN route. The current tunnel understands direct IPv4 and IPv6 UDP DNS packets; routing all device traffic into it would drop unsupported TCP and general application traffic.
 
@@ -111,20 +111,23 @@ Implement these as separate, tested phases to avoid breaking device connectivity
 5. Evaluate a full dual-stack traffic-forwarding tunnel for hostname-to-IP correlation and direct-IP enforcement.
 6. Add authentication around custom allow rules and protection changes when Protection Lock is enabled.
 
-Do not claim that ShieldFocus blocks every possible endpoint until the dual-stack and encrypted-DNS phases are complete. Android Always-on VPN with **Block connections without VPN** should remain the recommended strongest configuration.
+Do not claim that ShieldFocus blocks every possible endpoint until the full-tunnel and encrypted-DNS phases are complete. The current DNS-only split tunnel opts out of Android Always-on VPN and must not be used with **Block connections without VPN**, which blocks traffic outside the configured DNS routes.
 
 ## Advanced DNS Settings
 
 The existing Settings screen links to a dedicated **Advanced Settings** page. It exposes network controls separately so protocol-specific problems can be isolated:
 
-- **IPv4 DNS protection:** controls the IPv4 VPN address, device DNS routes, fallback resolvers, and strict public-resolver routes.
+- **IPv4 DNS protection:** controls the IPv4 VPN address, assigned DNS routes, and fallback resolvers.
 - **IPv6 DNS protection:** independently controls the IPv6 VPN address and equivalent IPv6 resolver routes.
 - **DNS response timeout:** selects a 1, 2, 4, or 6 second UDP forwarding timeout.
 - **Per-family runtime health:** shows Active, Ready, Disabled, or Problem independently for IPv4 and IPv6, together with processed-request and forwarding-failure counts for the current VPN session.
+- **Google SafeSearch:** maps Google and supported regional Google search domains to Google's enforced SafeSearch endpoint.
 
 At least one IP family must remain enabled. Changing IPv4, IPv6, Strict Mode, or the DNS timeout while protection is active performs a controlled VPN restart so the new routes and forwarder configuration take effect.
 
 For diagnosis, disable one family temporarily and test protection again. If the problem disappears, the disabled protocol or its resolver path is the likely source. Re-enable both families after testing for complete dual-stack DNS coverage.
+
+SafeSearch filters explicit results on providers that expose a network-enforcement endpoint. ShieldFocus's DNS-only VPN cannot read or block individual search keywords because HTTPS encrypts the search path and query. Unsupported providers require their own network endpoint, a managed-browser policy, or a browser extension; TLS interception is intentionally out of scope.
 
 ## Avoid For v1
 

@@ -12,6 +12,10 @@ import com.shieldfocus.android.model.BlockingCategory
 import com.shieldfocus.android.model.BlockingSchedule
 import com.shieldfocus.android.model.Decision
 import com.shieldfocus.android.model.ProtectionSettings
+import com.shieldfocus.android.model.ProtectionPresetCatalog
+import com.shieldfocus.android.vpn.BlockCategory
+import com.shieldfocus.android.vpn.CategorizedDomainRules
+import com.shieldfocus.android.vpn.PreparedDomainPolicy
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -30,6 +34,7 @@ private val KEY_STRICT_MODE = booleanPreferencesKey("strict_mode")
 private val KEY_IPV4_DNS_ENABLED = booleanPreferencesKey("ipv4_dns_enabled")
 private val KEY_IPV6_DNS_ENABLED = booleanPreferencesKey("ipv6_dns_enabled")
 private val KEY_DNS_TIMEOUT_MILLIS = intPreferencesKey("dns_timeout_millis")
+private val KEY_SAFE_SEARCH_ENABLED = booleanPreferencesKey("safe_search_enabled")
 private val KEY_REDIRECT_DELAY = intPreferencesKey("redirect_delay")
 private val KEY_AUTO_START_ON_BOOT = booleanPreferencesKey("auto_start_on_boot")
 private val KEY_RESTART_AFTER_INTERRUPTION = booleanPreferencesKey("restart_after_interruption")
@@ -42,6 +47,7 @@ private val KEY_CATEGORIES = stringPreferencesKey("blocking_categories")
 private val KEY_SCHEDULES = stringPreferencesKey("blocking_schedules")
 private val KEY_DECISION_LOGS = stringPreferencesKey("decision_logs")
 private val KEY_IMPORTED_PRESETS = stringSetPreferencesKey("imported_blocklist_presets")
+private val KEY_ENABLED_PRESETS = stringSetPreferencesKey("enabled_blocklist_presets")
 private val KEY_ACTIVE_PRESET_CATEGORIES = stringSetPreferencesKey("active_blocklist_categories")
 private val KEY_ACTIVE_ADULT_SUBCATEGORIES = stringSetPreferencesKey("active_adult_subcategories")
 
@@ -73,6 +79,17 @@ class ProtectionStore(context: Context) {
     private val adultDomainsBySubcategory: Map<String, Set<String>> by lazy {
         loadBundledAdultDomains()
     }
+    private val bundledDomainsByCategory: Map<String, Set<String>> by lazy {
+        mapOf(
+            "ad-networks" to loadDomainAsset("blocklists/stevenblack_advertising_hosts.txt"),
+            "trackers" to loadDomainAsset("blocklists/stevenblack_tracking_hosts.txt"),
+            "malware-phishing" to loadDomainAsset("blocklists/stevenblack_malware_hosts.txt"),
+            "gambling" to loadDomainAsset("blocklists/stevenblack_gambling_hosts.txt")
+        )
+    }
+    @Volatile private var cachedPolicySignature: String? = null
+    @Volatile private var cachedPreparedPolicy: PreparedDomainPolicy? = null
+    private var policyVersion: Long = 0
 
     fun loadSettings(): ProtectionSettings = runBlocking {
         val preferences = dataStore.data.first()
@@ -82,6 +99,7 @@ class ProtectionStore(context: Context) {
             ipv4DnsEnabled = preferences[KEY_IPV4_DNS_ENABLED] ?: true,
             ipv6DnsEnabled = preferences[KEY_IPV6_DNS_ENABLED] ?: true,
             dnsTimeoutMillis = (preferences[KEY_DNS_TIMEOUT_MILLIS] ?: 2_000).coerceIn(1_000, 10_000),
+            safeSearchEnabled = preferences[KEY_SAFE_SEARCH_ENABLED] ?: true,
             redirectDelaySeconds = preferences[KEY_REDIRECT_DELAY] ?: 5,
             autoStartOnBoot = preferences[KEY_AUTO_START_ON_BOOT] ?: false,
             restartAfterInterruption = preferences[KEY_RESTART_AFTER_INTERRUPTION] ?: true,
@@ -98,6 +116,7 @@ class ProtectionStore(context: Context) {
             preferences[KEY_IPV4_DNS_ENABLED] = settings.ipv4DnsEnabled || !settings.ipv6DnsEnabled
             preferences[KEY_IPV6_DNS_ENABLED] = settings.ipv6DnsEnabled
             preferences[KEY_DNS_TIMEOUT_MILLIS] = settings.dnsTimeoutMillis.coerceIn(1_000, 10_000)
+            preferences[KEY_SAFE_SEARCH_ENABLED] = settings.safeSearchEnabled
             preferences[KEY_REDIRECT_DELAY] = settings.redirectDelaySeconds
             preferences[KEY_AUTO_START_ON_BOOT] = settings.autoStartOnBoot
             preferences[KEY_RESTART_AFTER_INTERRUPTION] = settings.restartAfterInterruption
@@ -127,6 +146,10 @@ class ProtectionStore(context: Context) {
         loadSchedules().filter { it.isActiveAt(nowMillis) }.mapTo(mutableSetOf()) { it.id }
     }
 
+    fun loadBundledCategoryDomainCounts(): Map<String, Int> =
+        bundledDomainsByCategory.mapValues { it.value.size } +
+            ("adult-content" to adultDomainsBySubcategory.values.flatten().toSet().size)
+
     fun loadEffectiveBlockedDomains(activeScheduleIds: Set<String>): Set<String> = runBlocking {
         val preferences = dataStore.data.first()
         val manual = preferences[KEY_BLOCKED_DOMAINS].orEmpty()
@@ -134,17 +157,103 @@ class ProtectionStore(context: Context) {
             .filter { it.enabled && (it.scheduleId.isBlank() || it.scheduleId in activeScheduleIds) }
             .flatMap { it.domains }
             .toSet()
-        val activeCategoryIds = preferences[KEY_ACTIVE_PRESET_CATEGORIES]
-            ?: setOf("adult-content")
+        val activeCategoryIds = preferences[KEY_ACTIVE_PRESET_CATEGORIES] ?: ProtectionPresetCatalog.allCategoryIds
+        val enabledPresetIds = preferences[KEY_ENABLED_PRESETS] ?: setOf("shieldfocus-default")
+        val effectiveCategoryIds = ProtectionPresetCatalog.effectiveCategories(enabledPresetIds, activeCategoryIds)
         val activeAdultSubcategories = preferences[KEY_ACTIVE_ADULT_SUBCATEGORIES]
             ?: DEFAULT_ADULT_SUBCATEGORIES
-        val bundledAdultDomains = if ("adult-content" in activeCategoryIds) {
+        val bundledAdultDomains = if ("adult-content" in effectiveCategoryIds) {
             activeAdultSubcategories.flatMap { adultDomainsBySubcategory[it].orEmpty() }.toSet()
         } else {
             emptySet()
         }
-        manual + categoryDomains + bundledAdultDomains
+        val bundledCategoryDomains = effectiveCategoryIds
+            .asSequence()
+            .filterNot { it == "adult-content" }
+            .flatMap { bundledDomainsByCategory[it].orEmpty().asSequence() }
+            .toSet()
+        manual + categoryDomains + bundledAdultDomains + bundledCategoryDomains
     }
+
+    @Synchronized
+    fun loadPreparedDomainPolicy(activeScheduleIds: Set<String>, strictMode: Boolean): PreparedDomainPolicy = runBlocking {
+        val preferences = dataStore.data.first()
+        val signature = buildPolicySignature(preferences, activeScheduleIds, strictMode)
+        if (signature == cachedPolicySignature) {
+            cachedPreparedPolicy?.let { return@runBlocking it }
+        }
+
+        val enabledPresetIds = preferences[KEY_ENABLED_PRESETS] ?: setOf("shieldfocus-default")
+        val activeCategoryIds = preferences[KEY_ACTIVE_PRESET_CATEGORIES] ?: ProtectionPresetCatalog.allCategoryIds
+        val effectiveCategoryIds = ProtectionPresetCatalog.effectiveCategories(enabledPresetIds, activeCategoryIds)
+        val activeAdultSubcategories = preferences[KEY_ACTIVE_ADULT_SUBCATEGORIES] ?: DEFAULT_ADULT_SUBCATEGORIES
+        val categorizedRules = mutableListOf<CategorizedDomainRules>()
+
+        if ("adult-content" in effectiveCategoryIds) {
+            categorizedRules += CategorizedDomainRules(
+                BlockCategory.Adult,
+                activeAdultSubcategories.flatMap { adultDomainsBySubcategory[it].orEmpty() }
+            )
+        }
+        bundledDomainsByCategory.forEach { (categoryId, domains) ->
+            if (categoryId in effectiveCategoryIds) {
+                categorizedRules += CategorizedDomainRules(blockCategory(categoryId), domains)
+            }
+        }
+        decodeCategories(preferences[KEY_CATEGORIES].orEmpty())
+            .filter { it.enabled && (it.scheduleId.isBlank() || it.scheduleId in activeScheduleIds) }
+            .forEach { category ->
+                categorizedRules += CategorizedDomainRules(
+                    blockCategory(category.id, category.name),
+                    category.domains
+                )
+            }
+
+        policyVersion += 1
+        PreparedDomainPolicy.build(
+            version = policyVersion,
+            strictMode = strictMode,
+            categorizedRules = categorizedRules,
+            manualRules = preferences[KEY_BLOCKED_DOMAINS].orEmpty(),
+            allowedRules = preferences[KEY_ALLOWED_DOMAINS].orEmpty()
+        ).also { prepared ->
+            cachedPolicySignature = signature
+            cachedPreparedPolicy = prepared
+        }
+    }
+
+    private fun buildPolicySignature(
+        preferences: androidx.datastore.preferences.core.Preferences,
+        activeScheduleIds: Set<String>,
+        strictMode: Boolean
+    ): String = listOf(
+        strictMode.toString(),
+        preferences[KEY_BLOCKED_DOMAINS].orEmpty().sorted().joinToString("\u0001"),
+        preferences[KEY_ALLOWED_DOMAINS].orEmpty().sorted().joinToString("\u0001"),
+        preferences[KEY_CATEGORIES].orEmpty(),
+        preferences[KEY_ENABLED_PRESETS].orEmpty().sorted().joinToString("\u0001"),
+        preferences[KEY_ACTIVE_PRESET_CATEGORIES].orEmpty().sorted().joinToString("\u0001"),
+        preferences[KEY_ACTIVE_ADULT_SUBCATEGORIES].orEmpty().sorted().joinToString("\u0001"),
+        activeScheduleIds.sorted().joinToString("\u0001")
+    ).joinToString("\u0002")
+
+    private fun blockCategory(categoryId: String, categoryName: String = categoryId): BlockCategory {
+        val value = "$categoryId $categoryName".lowercase()
+        return when {
+            "adult" in value || "porn" in value -> BlockCategory.Adult
+            "malware" in value || "phish" in value || "security" in value -> BlockCategory.Malware
+            "advert" in value || categoryId == "ad-networks" -> BlockCategory.Advertising
+            "track" in value || "telemetry" in value -> BlockCategory.Tracking
+            "gambl" in value || "casino" in value || "betting" in value -> BlockCategory.Gambling
+            else -> BlockCategory.Custom
+        }
+    }
+
+    private fun loadDomainAsset(path: String): Set<String> = runCatching {
+        applicationContext.assets.open(path).bufferedReader().useLines { lines ->
+            lines.mapNotNull { normalizeDomain(it) }.toSet()
+        }
+    }.getOrElse { emptySet() }
 
     private fun loadBundledAdultDomains(): Map<String, Set<String>> = runCatching {
         val payload = applicationContext.assets
@@ -152,7 +261,7 @@ class ProtectionStore(context: Context) {
             .bufferedReader()
             .use { it.readText() }
         val categories = JSONObject(payload).getJSONObject("categories")
-        categories.keys().asSequence().associateWith { categoryId ->
+        val configured = categories.keys().asSequence().associateWith { categoryId ->
             readJsonStringSet(categories.optJSONArray(categoryId))
                 .mapNotNull { entry ->
                     val rawEntry = entry.trim().lowercase()
@@ -163,6 +272,13 @@ class ProtectionStore(context: Context) {
                 }
                 .toSet()
         }
+        val importedHosts = applicationContext.assets
+            .open("blocklists/stevenblack_adult_hosts.txt")
+            .bufferedReader()
+            .useLines { lines ->
+                lines.mapNotNull { normalizeDomain(it) }.toSet()
+            }
+        configured + ("pornographic-websites" to (configured["pornographic-websites"].orEmpty() + importedHosts))
     }.getOrElse { emptyMap() }
 
     fun decisionHistoryFlow(): Flow<List<Decision>> {
@@ -183,9 +299,16 @@ class ProtectionStore(context: Context) {
         dataStore.edit { it[KEY_IMPORTED_PRESETS] = ids }
     }
 
+    fun loadEnabledPresetIds(): Set<String> = runBlocking {
+        dataStore.data.first()[KEY_ENABLED_PRESETS] ?: setOf("shieldfocus-default")
+    }
+
+    fun saveEnabledPresetIds(ids: Set<String>) = runBlocking {
+        dataStore.edit { it[KEY_ENABLED_PRESETS] = ids }
+    }
+
     fun loadActivePresetCategoryIds(): Set<String> = runBlocking {
-        dataStore.data.first()[KEY_ACTIVE_PRESET_CATEGORIES]
-            ?: setOf("adult-content")
+        dataStore.data.first()[KEY_ACTIVE_PRESET_CATEGORIES] ?: ProtectionPresetCatalog.allCategoryIds
     }
 
     fun saveActivePresetCategoryIds(ids: Set<String>) = runBlocking {
@@ -369,6 +492,7 @@ class ProtectionStore(context: Context) {
         return next
     }
 
+    @Synchronized
     fun appendDecision(decision: Decision) = runBlocking {
         dataStore.edit { preferences ->
             val retentionDays = preferences[KEY_ACTIVITY_RETENTION_DAYS] ?: 30
@@ -399,6 +523,7 @@ class ProtectionStore(context: Context) {
                 put("ipv4DnsEnabled", settings.ipv4DnsEnabled)
                 put("ipv6DnsEnabled", settings.ipv6DnsEnabled)
                 put("dnsTimeoutMillis", settings.dnsTimeoutMillis)
+                put("safeSearchEnabled", settings.safeSearchEnabled)
                 put("redirectDelaySeconds", settings.redirectDelaySeconds)
                 put("autoStartOnBoot", settings.autoStartOnBoot)
                 put("restartAfterInterruption", settings.restartAfterInterruption)
@@ -406,6 +531,10 @@ class ProtectionStore(context: Context) {
                 put("activityRetentionDays", settings.activityRetentionDays)
                 put("hideSensitiveDomains", settings.hideSensitiveDomains)
             })
+            .put("importedPresetIds", JSONArray(loadImportedPresetIds().sorted()))
+            .put("enabledPresetIds", JSONArray(loadEnabledPresetIds().sorted()))
+            .put("activeCategoryIds", JSONArray(loadActivePresetCategoryIds().sorted()))
+            .put("activeAdultSubcategoryIds", JSONArray(loadActiveAdultSubcategoryIds().sorted()))
             .put("blockedDomains", JSONArray(loadBlockedDomains().sorted()))
             .put("allowedDomains", JSONArray(loadAllowedDomains().sorted()))
             .put("categories", JSONArray().apply {
@@ -456,6 +585,7 @@ class ProtectionStore(context: Context) {
                 ipv4DnsEnabled = settingsObject.optBoolean("ipv4DnsEnabled", true),
                 ipv6DnsEnabled = settingsObject.optBoolean("ipv6DnsEnabled", true),
                 dnsTimeoutMillis = settingsObject.optInt("dnsTimeoutMillis", 2_000).coerceIn(1_000, 10_000),
+                safeSearchEnabled = settingsObject.optBoolean("safeSearchEnabled", true),
                 redirectDelaySeconds = settingsObject.optInt("redirectDelaySeconds", 5),
                 autoStartOnBoot = settingsObject.optBoolean("autoStartOnBoot", false),
                 restartAfterInterruption = settingsObject.optBoolean("restartAfterInterruption", true),
@@ -466,6 +596,10 @@ class ProtectionStore(context: Context) {
 
             val blockedDomains = readJsonStringSet(root.optJSONArray("blockedDomains"))
             val allowedDomains = readJsonStringSet(root.optJSONArray("allowedDomains"))
+            val importedPresetIds = readJsonStringSet(root.optJSONArray("importedPresetIds"))
+            val enabledPresetIds = readJsonStringSet(root.optJSONArray("enabledPresetIds"))
+            val activeCategoryIds = readJsonStringSet(root.optJSONArray("activeCategoryIds"))
+            val activeAdultSubcategoryIds = readJsonStringSet(root.optJSONArray("activeAdultSubcategoryIds"))
             val categories = readCategoriesFromJson(root.optJSONArray("categories"))
             val schedules = readSchedulesFromJson(root.optJSONArray("schedules"))
             val decisions = readDecisionsFromJson(root.optJSONArray("decisionLogs"))
@@ -473,6 +607,10 @@ class ProtectionStore(context: Context) {
             saveSettings(settings)
             saveBlockedDomains(blockedDomains)
             saveAllowedDomains(allowedDomains)
+            saveImportedPresetIds(importedPresetIds.ifEmpty { setOf("shieldfocus-default") })
+            saveEnabledPresetIds(enabledPresetIds.ifEmpty { setOf("shieldfocus-default") })
+            saveActivePresetCategoryIds(activeCategoryIds)
+            saveActiveAdultSubcategoryIds(activeAdultSubcategoryIds.ifEmpty { DEFAULT_ADULT_SUBCATEGORIES })
             saveCategories(categories)
             saveSchedules(schedules)
             dataStore.edit { preferences ->

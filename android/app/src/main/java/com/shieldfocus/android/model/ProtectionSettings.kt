@@ -6,6 +6,7 @@ data class ProtectionSettings(
     val ipv4DnsEnabled: Boolean = true,
     val ipv6DnsEnabled: Boolean = true,
     val dnsTimeoutMillis: Int = 2_000,
+    val safeSearchEnabled: Boolean = true,
     val redirectDelaySeconds: Int = 5,
     val autoStartOnBoot: Boolean = false,
     val restartAfterInterruption: Boolean = true,

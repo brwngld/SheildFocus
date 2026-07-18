@@ -55,11 +55,17 @@ class MainActivity : ComponentActivity() {
             var importedPresetIds by remember {
                 mutableStateOf(protectionStore.loadImportedPresetIds())
             }
+            var enabledPresetIds by remember {
+                mutableStateOf(protectionStore.loadEnabledPresetIds())
+            }
             var activePresetCategoryIds by remember {
                 mutableStateOf(protectionStore.loadActivePresetCategoryIds())
             }
             var activeAdultSubcategoryIds by remember {
                 mutableStateOf(protectionStore.loadActiveAdultSubcategoryIds())
+            }
+            val bundledCategoryDomainCounts = remember {
+                protectionStore.loadBundledCategoryDomainCounts()
             }
             val decisionLogs by produceState(
                 initialValue = protectionStore.loadDecisionHistory()
@@ -78,14 +84,16 @@ class MainActivity : ComponentActivity() {
                         protectionStore.saveSettings(settings)
                     }
                     VpnConnectionState.Disconnected, VpnConnectionState.Error -> {
-                        settings = settings.copy(enabled = false)
-                        protectionStore.saveSettings(settings)
                         if (
                             vpnStatus.state == VpnConnectionState.Disconnected &&
                             restartAfterNetworkSettingsChange
                         ) {
                             restartAfterNetworkSettingsChange = false
                             startVpnFlow?.invoke()
+                        } else {
+                            restartAfterNetworkSettingsChange = false
+                            settings = settings.copy(enabled = false)
+                            protectionStore.saveSettings(settings)
                         }
                     }
                     else -> Unit
@@ -184,6 +192,10 @@ class MainActivity : ComponentActivity() {
                 allowedDomains = protectionStore.loadAllowedDomains().sorted()
                 categories = protectionStore.loadCategories()
                 schedules = protectionStore.loadSchedules()
+                importedPresetIds = protectionStore.loadImportedPresetIds()
+                enabledPresetIds = protectionStore.loadEnabledPresetIds()
+                activePresetCategoryIds = protectionStore.loadActivePresetCategoryIds()
+                activeAdultSubcategoryIds = protectionStore.loadActiveAdultSubcategoryIds()
             }
 
             ShieldFocusTheme {
@@ -196,6 +208,7 @@ class MainActivity : ComponentActivity() {
                     ipv4DnsEnabled = settings.ipv4DnsEnabled,
                     ipv6DnsEnabled = settings.ipv6DnsEnabled,
                     dnsTimeoutMillis = settings.dnsTimeoutMillis,
+                    safeSearchEnabled = settings.safeSearchEnabled,
                     ipv4DnsHealth = dnsHealth.ipv4,
                     ipv6DnsHealth = dnsHealth.ipv6,
                     redirectDelaySeconds = settings.redirectDelaySeconds,
@@ -210,8 +223,10 @@ class MainActivity : ComponentActivity() {
                     schedules = schedules,
                     decisionLogs = decisionLogs,
                     importedPresetIds = importedPresetIds,
+                    enabledPresetIds = enabledPresetIds,
                     activePresetCategoryIds = activePresetCategoryIds,
                     activeAdultSubcategoryIds = activeAdultSubcategoryIds,
+                    bundledCategoryDomainCounts = bundledCategoryDomainCounts,
                     onProtectionToggle = { enabled ->
                         if (enabled) {
                             startVpnFlow?.invoke()
@@ -220,7 +235,7 @@ class MainActivity : ComponentActivity() {
                         }
                     },
                     onStrictModeToggle = { enabled ->
-                        updateNetworkSettings(settings.copy(strictMode = enabled))
+                        updateSettings(settings.copy(strictMode = enabled))
                     },
                     onIpv4DnsToggle = { enabled ->
                         if (enabled || settings.ipv6DnsEnabled) {
@@ -233,7 +248,10 @@ class MainActivity : ComponentActivity() {
                         }
                     },
                     onDnsTimeoutMillisChange = { timeoutMillis ->
-                        updateNetworkSettings(settings.copy(dnsTimeoutMillis = timeoutMillis.coerceIn(1_000, 10_000)))
+                        updateSettings(settings.copy(dnsTimeoutMillis = timeoutMillis.coerceIn(1_000, 10_000)))
+                    },
+                    onSafeSearchToggle = { enabled ->
+                        updateSettings(settings.copy(safeSearchEnabled = enabled))
                     },
                     onAutoStartToggle = { enabled ->
                         updateSettings(settings.copy(autoStartOnBoot = enabled))
@@ -289,6 +307,10 @@ class MainActivity : ComponentActivity() {
                     onImportedPresetIdsChange = { ids ->
                         importedPresetIds = ids
                         protectionStore.saveImportedPresetIds(ids)
+                    },
+                    onEnabledPresetIdsChange = { ids ->
+                        enabledPresetIds = ids
+                        protectionStore.saveEnabledPresetIds(ids)
                     },
                     onActivePresetCategoryIdsChange = { ids ->
                         activePresetCategoryIds = ids

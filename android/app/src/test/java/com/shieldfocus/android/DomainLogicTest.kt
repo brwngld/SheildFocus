@@ -78,7 +78,7 @@ class DomainLogicTest {
     }
 
     @Test
-    fun strictModeBlocksSameSiteLabelAcrossAlternativeTlds() {
+    fun strictModeDoesNotGuessSameLabelAcrossAlternativeTlds() {
         listOf(
             "xvideos.net",
             "xvideos.xyz",
@@ -91,8 +91,8 @@ class DomainLogicTest {
                 strictMode = true
             )
 
-            assertFalse(hostname, decision.allow)
-            assertEquals("blocked-domain-variant", decision.reason)
+            assertTrue(hostname, decision.allow)
+            assertEquals("allow-strict", decision.reason)
         }
     }
 
@@ -167,6 +167,35 @@ class DomainLogicTest {
         )
 
         assertTrue(decision.allow)
+    }
+
+    @Test
+    fun strictModeDoesNotTreatAdultSubdomainLabelAsGoogleFamily() {
+        val decision = DomainPolicy.decide(
+            hostname = "www.google.com",
+            blockedDomains = setOf("google.porno.sexy"),
+            allowedDomains = emptySet(),
+            strictMode = true
+        )
+
+        assertTrue(decision.allow)
+        assertEquals("allow-strict", decision.reason)
+    }
+
+    @Test
+    fun strictModeDoesNotBlockLegitimateDomainFromDifferentTldRule() {
+        listOf(
+            "www.facebook.com" to "facebook.cm",
+            "www.google.com" to "google.xxx"
+        ).forEach { (hostname, blockedRule) ->
+            val decision = DomainPolicy.decide(
+                hostname = hostname,
+                blockedDomains = setOf(blockedRule),
+                allowedDomains = emptySet(),
+                strictMode = true
+            )
+            assertTrue("$hostname should not match $blockedRule", decision.allow)
+        }
     }
 
     @Test

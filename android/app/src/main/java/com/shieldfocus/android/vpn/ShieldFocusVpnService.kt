@@ -11,12 +11,14 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.VpnService
 import android.os.ParcelFileDescriptor
+import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import com.shieldfocus.android.MainActivity
 import com.shieldfocus.android.data.ProtectionStore
 import com.shieldfocus.android.model.Decision
+import com.shieldfocus.android.model.ProtectionSettings
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.net.Inet4Address
@@ -25,6 +27,12 @@ import java.net.UnknownHostException
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -45,6 +53,7 @@ data class VpnConnectionStatus(
 
 data class DnsFamilyHealth(
     val processedRequests: Int = 0,
+    val blockedRequests: Int = 0,
     val forwardingFailures: Int = 0,
     val lastSuccessMillis: Long? = null,
     val lastFailureMillis: Long? = null
@@ -60,6 +69,8 @@ class ShieldFocusVpnService : VpnService() {
     private val tunnelGeneration = AtomicInteger(0)
     private var tunnel: ParcelFileDescriptor? = null
     private var worker: Thread? = null
+    @Volatile private var requestExecutor: ThreadPoolExecutor? = null
+    @Volatile private var decisionLogExecutor: ThreadPoolExecutor? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
@@ -91,6 +102,16 @@ class ShieldFocusVpnService : VpnService() {
     @Synchronized
     private fun startTunnel() {
         if (!running.compareAndSet(false, true)) {
+            return
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && isLockdownEnabled) {
+            running.set(false)
+            updateStatus(
+                VpnConnectionState.Error,
+                errorMessage = "Turn off 'Block connections without VPN' in Android VPN settings. ShieldFocus currently filters DNS only and cannot carry all internet traffic."
+            )
+            stopSelf()
             return
         }
 
@@ -134,12 +155,9 @@ class ShieldFocusVpnService : VpnService() {
     private fun runTunnel(generation: Int) {
         val store = ProtectionStore(applicationContext)
         val settings = store.loadSettings()
-        val allowedDomains = store.loadAllowedDomains()
         val routeSelection = DnsRoutePolicy.select(
             networkDnsServers = collectDnsServers(),
             fallbackDnsServers = fallbackDnsResolvers(),
-            strictDnsResolvers = strictDnsResolvers(),
-            strictMode = settings.strictMode,
             ipv4Enabled = settings.ipv4DnsEnabled,
             ipv6Enabled = settings.ipv6DnsEnabled
         )
@@ -160,7 +178,7 @@ class ShieldFocusVpnService : VpnService() {
             val routeAddress = server.hostAddress ?: return@forEach
             builder.addRoute(routeAddress, if (server.address.size == 4) 32 else 128)
         }
-        routeSelection.networkDnsServers.forEach { server ->
+        routeSelection.routedDnsServers.forEach { server ->
             builder.addDnsServer(server)
         }
 
@@ -186,9 +204,37 @@ class ShieldFocusVpnService : VpnService() {
 
         updateStatus(VpnConnectionState.Connected, connectedAtMillis = System.currentTimeMillis())
 
+        val executor = ThreadPoolExecutor(
+            2,
+            4,
+            30L,
+            TimeUnit.SECONDS,
+            ArrayBlockingQueue(128),
+            { task -> Thread(task, "ShieldFocusDnsWorker").apply { isDaemon = true } },
+            ThreadPoolExecutor.AbortPolicy()
+        )
+        requestExecutor = executor
+        val logExecutor = ThreadPoolExecutor(
+            1,
+            1,
+            30L,
+            TimeUnit.SECONDS,
+            ArrayBlockingQueue(64),
+            { task -> Thread(task, "ShieldFocusDecisionLog").apply { isDaemon = true } },
+            ThreadPoolExecutor.DiscardOldestPolicy()
+        )
+        decisionLogExecutor = logExecutor
+        val activeScheduleIds = store.loadActiveScheduleIds()
+        val settingsReference = AtomicReference(settings)
+        val policyReference = AtomicReference(store.loadPreparedDomainPolicy(activeScheduleIds, settings.strictMode))
+        val outputLock = Any()
+        val lastUnsupportedLogMillis = AtomicLong(0L)
+
+        try {
         FileInputStream(descriptor.fileDescriptor).use { input ->
             FileOutputStream(descriptor.fileDescriptor).use { output ->
                 val packetBuffer = ByteArray(32767)
+                var policyRefreshAt = 0L
 
                 while (running.get() && tunnelGeneration.get() == generation) {
                     val length = try {
@@ -206,60 +252,162 @@ class ShieldFocusVpnService : VpnService() {
                     }
 
                 val packet = packetBuffer.copyOf(length)
-                val query = DnsPacketCodec.parse(packet) ?: continue
+                val packetType = CapturedPacketClassifier.classify(packet)
+                if (packetType != CapturedPacketType.UdpDns) {
+                    logUnsupportedPacketRateLimited(packetType, lastUnsupportedLogMillis)
+                    continue
+                }
+                val query = DnsPacketCodec.parse(packet)
+                if (query == null) {
+                    logUnsupportedPacketRateLimited(CapturedPacketType.Malformed, lastUnsupportedLogMillis)
+                    continue
+                }
                 if (query.hostname.isBlank()) {
                     continue
                 }
 
-                val activeScheduleIds = store.loadActiveScheduleIds()
-                val blockedDomains = store.loadEffectiveBlockedDomains(activeScheduleIds)
-
-                val decision = DomainPolicy.decide(
-                    hostname = query.hostname,
-                    blockedDomains = blockedDomains,
-                        allowedDomains = allowedDomains,
-                        strictMode = settings.strictMode
+                val now = System.currentTimeMillis()
+                if (now >= policyRefreshAt) {
+                    val currentSettings = store.loadSettings()
+                    settingsReference.set(currentSettings)
+                    policyReference.set(
+                        store.loadPreparedDomainPolicy(store.loadActiveScheduleIds(), currentSettings.strictMode)
                     )
-
-                    if (settings.loggingEnabled) {
-                        store.appendDecision(
-                            Decision(
-                                domain = query.hostname,
-                                allow = decision.allow,
-                                reason = decision.reason
-                            )
+                    policyRefreshAt = now + POLICY_REFRESH_MILLIS
+                }
+                try {
+                    executor.execute {
+                        processDnsQuery(
+                            query = query,
+                            policy = policyReference.get(),
+                            settings = settingsReference.get(),
+                            routeSelection = routeSelection,
+                            store = store,
+                            output = output,
+                            outputLock = outputLock
                         )
                     }
+                } catch (_: RejectedExecutionException) {
+                    Log.w(TAG, "DNS work queue is full; returning SERVFAIL")
+                    writeResponse(output, outputLock, query, DnsFailureResponse.servFail(query))
+                }
+            }
+            executor.shutdown()
+            runCatching { executor.awaitTermination(1, TimeUnit.SECONDS) }
+            executor.shutdownNow()
+        }
+        }
+        } finally {
+            requestExecutor = null
+            executor.shutdownNow()
+            runCatching { executor.awaitTermination(1, TimeUnit.SECONDS) }
+            decisionLogExecutor = null
+            logExecutor.shutdown()
+            runCatching { logExecutor.awaitTermination(1, TimeUnit.SECONDS) }
+            logExecutor.shutdownNow()
+        }
+    }
 
-                    val dnsPayload = if (decision.allow) {
-                        val forwarded = DnsForwarder.forward(query, this, settings.dnsTimeoutMillis)
-                        if (forwarded == null) {
-                            recordDnsFailure(query.ipVersion)
-                            continue
-                        }
+    private fun processDnsQuery(
+        query: DnsQueryPacket,
+        policy: PreparedDomainPolicy,
+        settings: ProtectionSettings,
+        routeSelection: DnsRouteSelection,
+        store: ProtectionStore,
+        output: FileOutputStream,
+        outputLock: Any
+    ) {
+        try {
+            val decision = policy.decide(query.hostname)
+            val safeSearchTarget = SafeSearchPolicy.cnameTarget(query.hostname, settings.safeSearchEnabled)
+            val dnsPayload = when {
+                !decision.allow -> {
+                    recordDnsBlocked(query.ipVersion)
+                    enqueueDecisionLog(
+                        store,
+                        settings,
+                        Decision(query.hostname, false, decision.logReason())
+                    )
+                    DnsPacketCodec.buildBlockedDnsPayload(query)
+                }
+                safeSearchTarget != null -> {
+                    recordDnsSuccess(query.ipVersion)
+                    enqueueDecisionLog(
+                        store,
+                        settings,
+                        Decision(query.hostname, true, "allowed:safesearch")
+                    )
+                    DnsPacketCodec.buildCnameDnsPayload(query, safeSearchTarget)
+                }
+                else -> when (
+                    val result = DnsForwarder.forwardResult(
+                        query = query,
+                        vpnService = this,
+                        timeoutMillis = settings.dnsTimeoutMillis,
+                        fallbackServers = routeSelection.networkDnsServers + fallbackDnsResolvers()
+                    )
+                ) {
+                    is DnsForwardResult.Success -> {
                         recordDnsSuccess(query.ipVersion)
-                        forwarded
-                    } else {
-                        recordDnsSuccess(query.ipVersion)
-                        DnsPacketCodec.buildBlockedDnsPayload(query)
+                        enqueueDecisionLog(
+                            store,
+                            settings,
+                            Decision(query.hostname, true, decision.logReason())
+                        )
+                        result.payload
                     }
-
-                    val responsePacket = DnsPacketCodec.buildResponsePacket(query, dnsPayload)
-
-                    try {
-                        output.write(responsePacket)
-                        output.flush()
-                    } catch (error: Exception) {
-                        Log.e(TAG, "VPN write failed", error)
-                        if (running.get()) {
-                            updateStatus(VpnConnectionState.Error, errorMessage = describeVpnError(error, "write VPN traffic"))
-                        }
-                        break
+                    else -> {
+                        recordDnsFailure(query.ipVersion)
+                        DnsFailureResponse.servFail(query)
                     }
                 }
             }
+            writeResponse(output, outputLock, query, dnsPayload)
+        } catch (error: Exception) {
+            Log.e(TAG, "DNS request processing failed", error)
+            writeResponse(output, outputLock, query, DnsFailureResponse.servFail(query))
         }
+    }
 
+    private fun enqueueDecisionLog(
+        store: ProtectionStore,
+        settings: ProtectionSettings,
+        decision: Decision
+    ) {
+        if (!settings.loggingEnabled) return
+        runCatching {
+            decisionLogExecutor?.execute { store.appendDecision(decision) }
+        }.onFailure { error ->
+            if (error !is RejectedExecutionException) {
+                Log.w(TAG, "Could not queue DNS decision log", error)
+            }
+        }
+    }
+
+    private fun writeResponse(
+        output: FileOutputStream,
+        outputLock: Any,
+        query: DnsQueryPacket,
+        dnsPayload: ByteArray
+    ) {
+        val responsePacket = DnsPacketCodec.buildResponsePacket(query, dnsPayload)
+        synchronized(outputLock) {
+            if (!running.get()) return
+            try {
+                output.write(responsePacket)
+                output.flush()
+            } catch (error: Exception) {
+                if (running.get()) Log.e(TAG, "VPN response write failed", error)
+            }
+        }
+    }
+
+    private fun logUnsupportedPacketRateLimited(type: CapturedPacketType, lastLogMillis: AtomicLong) {
+        val now = System.currentTimeMillis()
+        val previous = lastLogMillis.get()
+        if (now - previous >= UNSUPPORTED_PACKET_LOG_INTERVAL_MILLIS && lastLogMillis.compareAndSet(previous, now)) {
+            Log.w(TAG, "Captured unsupported packet type $type; DNS-only VPN cannot forward this transport")
+        }
     }
 
     @Synchronized
@@ -313,6 +461,10 @@ class ShieldFocusVpnService : VpnService() {
         }
 
         worker?.interrupt()
+        requestExecutor?.shutdownNow()
+        requestExecutor = null
+        decisionLogExecutor?.shutdownNow()
+        decisionLogExecutor = null
         worker = null
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
@@ -327,11 +479,6 @@ class ShieldFocusVpnService : VpnService() {
         return linkProperties.dnsServers
     }
 
-    private fun strictDnsResolvers(): List<InetAddress> {
-        return STRICT_DNS_RESOLVER_ADDRESSES.mapNotNull { address ->
-            runCatching { InetAddress.getByName(address) }.getOrNull()
-        }
-    }
 
     private fun fallbackDnsResolvers(): List<InetAddress> {
         return listOf(
@@ -383,6 +530,8 @@ class ShieldFocusVpnService : VpnService() {
     }
 
     companion object {
+        private const val POLICY_REFRESH_MILLIS = 1_000L
+        private const val UNSUPPORTED_PACKET_LOG_INTERVAL_MILLIS = 30_000L
         const val ACTION_START = "com.shieldfocus.android.vpn.action.START"
         const val ACTION_STOP = "com.shieldfocus.android.vpn.action.STOP"
 
@@ -435,6 +584,17 @@ class ShieldFocusVpnService : VpnService() {
             }
         }
 
+        private fun recordDnsBlocked(ipVersion: Int) {
+            val now = System.currentTimeMillis()
+            mutableDnsHealth.value = mutableDnsHealth.value.update(ipVersion) { current ->
+                current.copy(
+                    processedRequests = current.processedRequests + 1,
+                    blockedRequests = current.blockedRequests + 1,
+                    lastSuccessMillis = now
+                )
+            }
+        }
+
         private fun VpnDnsHealth.update(
             ipVersion: Int,
             transform: (DnsFamilyHealth) -> DnsFamilyHealth
@@ -445,28 +605,6 @@ class ShieldFocusVpnService : VpnService() {
         private const val CHANNEL_ID = "shieldfocus_vpn"
         private const val NOTIFICATION_ID = 1001
         private const val TAG = "ShieldFocusVpn"
-        private val STRICT_DNS_RESOLVER_ADDRESSES = listOf(
-            "1.1.1.1",
-            "1.0.0.1",
-            "8.8.8.8",
-            "8.8.4.4",
-            "9.9.9.9",
-            "149.112.112.112",
-            "94.140.14.14",
-            "94.140.15.15",
-            "208.67.222.222",
-            "208.67.220.220",
-            "2606:4700:4700::1111",
-            "2606:4700:4700::1001",
-            "2001:4860:4860::8888",
-            "2001:4860:4860::8844",
-            "2620:fe::fe",
-            "2620:fe::9",
-            "2a10:50c0::ad1:ff",
-            "2a10:50c0::ad2:ff",
-            "2620:119:35::35",
-            "2620:119:53::53"
-        )
     }
 
     private fun updateStatus(
@@ -482,4 +620,6 @@ class ShieldFocusVpnService : VpnService() {
     private fun recordDnsSuccess(ipVersion: Int) = Companion.recordDnsSuccess(ipVersion)
 
     private fun recordDnsFailure(ipVersion: Int) = Companion.recordDnsFailure(ipVersion)
+
+    private fun recordDnsBlocked(ipVersion: Int) = Companion.recordDnsBlocked(ipVersion)
 }

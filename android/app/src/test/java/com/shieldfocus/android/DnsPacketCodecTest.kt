@@ -5,11 +5,29 @@ import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.ByteArrayOutputStream
 import java.net.InetAddress
 
 class DnsPacketCodecTest {
+    @Test
+    fun buildsCnameSafeSearchAnswer() {
+        val source = InetAddress.getByName("10.0.0.2")
+        val destination = InetAddress.getByName("10.0.0.1")
+        val query = requireNotNull(
+            DnsPacketCodec.parse(ipv4DnsQuery(source.address, destination.address, "www.google.com"))
+        )
+
+        val payload = DnsPacketCodec.buildCnameDnsPayload(query, "forcesafesearch.google.com")
+
+        assertEquals(0x81, payload[2].toInt() and 0xFF)
+        assertEquals(0x80, payload[3].toInt() and 0xFF)
+        assertEquals(1, payload[7].toInt() and 0xFF)
+        assertTrue(payload.toList().windowed(2).any { it[0] == 0xC0.toByte() && it[1] == 0x0C.toByte() })
+        assertTrue(payload.decodeToString().contains("forcesafesearch"))
+    }
+
 
     @Test
     fun parsesDirectIpv6UdpDnsQuery() {

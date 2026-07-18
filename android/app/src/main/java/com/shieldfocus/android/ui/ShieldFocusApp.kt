@@ -92,6 +92,7 @@ import androidx.compose.material.icons.outlined.ChevronRight
 import com.shieldfocus.android.model.BlockingCategory
 import com.shieldfocus.android.model.BlockingSchedule
 import com.shieldfocus.android.model.Decision
+import com.shieldfocus.android.model.ProtectionPresetCatalog
 import com.shieldfocus.android.vpn.DnsFamilyHealth
 import com.shieldfocus.android.vpn.VpnConnectionState
 import java.text.DateFormat
@@ -110,6 +111,7 @@ fun ShieldFocusApp(
     ipv4DnsEnabled: Boolean,
     ipv6DnsEnabled: Boolean,
     dnsTimeoutMillis: Int,
+    safeSearchEnabled: Boolean,
     ipv4DnsHealth: DnsFamilyHealth,
     ipv6DnsHealth: DnsFamilyHealth,
     redirectDelaySeconds: Int,
@@ -124,13 +126,16 @@ fun ShieldFocusApp(
     schedules: List<BlockingSchedule>,
     decisionLogs: List<Decision>,
     importedPresetIds: Set<String>,
+    enabledPresetIds: Set<String>,
     activePresetCategoryIds: Set<String>,
     activeAdultSubcategoryIds: Set<String>,
+    bundledCategoryDomainCounts: Map<String, Int>,
     onProtectionToggle: (Boolean) -> Unit,
     onStrictModeToggle: (Boolean) -> Unit,
     onIpv4DnsToggle: (Boolean) -> Unit,
     onIpv6DnsToggle: (Boolean) -> Unit,
     onDnsTimeoutMillisChange: (Int) -> Unit,
+    onSafeSearchToggle: (Boolean) -> Unit,
     onAutoStartToggle: (Boolean) -> Unit,
     onRestartAfterInterruptionToggle: (Boolean) -> Unit,
     onLoggingToggle: (Boolean) -> Unit,
@@ -149,6 +154,7 @@ fun ShieldFocusApp(
     onAssignScheduleToCategory: (String, String) -> Unit,
     onAddSchedule: (String, Set<Int>, Int, Int) -> Unit,
     onImportedPresetIdsChange: (Set<String>) -> Unit,
+    onEnabledPresetIdsChange: (Set<String>) -> Unit,
     onActivePresetCategoryIdsChange: (Set<String>) -> Unit,
     onActiveAdultSubcategoryIdsChange: (Set<String>) -> Unit,
     onRemoveSchedule: (String) -> Unit,
@@ -288,12 +294,14 @@ fun ShieldFocusApp(
                     ipv4DnsEnabled = ipv4DnsEnabled,
                     ipv6DnsEnabled = ipv6DnsEnabled,
                     dnsTimeoutMillis = dnsTimeoutMillis,
+                    safeSearchEnabled = safeSearchEnabled,
                     ipv4DnsHealth = ipv4DnsHealth,
                     ipv6DnsHealth = ipv6DnsHealth,
                     onBack = { secondaryPage = SecondaryPage.Settings },
                     onIpv4DnsToggle = onIpv4DnsToggle,
                     onIpv6DnsToggle = onIpv6DnsToggle,
-                    onDnsTimeoutMillisChange = onDnsTimeoutMillisChange
+                    onDnsTimeoutMillisChange = onDnsTimeoutMillisChange,
+                    onSafeSearchToggle = onSafeSearchToggle
                 )
             } else if (secondaryPage == SecondaryPage.Schedules) {
                 SchedulesPageContent(
@@ -350,9 +358,12 @@ fun ShieldFocusApp(
                         categories = categories,
                         schedules = schedules,
                         importedPresetIds = importedPresetIds,
+                        enabledPresetIds = enabledPresetIds,
                         activeCategoryIds = activePresetCategoryIds,
                         activeAdultSubcategoryIds = activeAdultSubcategoryIds,
+                        bundledCategoryDomainCounts = bundledCategoryDomainCounts,
                         onImportedPresetIdsChange = onImportedPresetIdsChange,
+                        onEnabledPresetIdsChange = onEnabledPresetIdsChange,
                         onActiveCategoryIdsChange = onActivePresetCategoryIdsChange,
                         onActiveAdultSubcategoryIdsChange = onActiveAdultSubcategoryIdsChange,
                         categoryInput = categoryInput,
@@ -1279,9 +1290,12 @@ private fun BlockListTabContent(
     categories: List<BlockingCategory>,
     schedules: List<BlockingSchedule>,
     importedPresetIds: Set<String>,
+    enabledPresetIds: Set<String>,
     activeCategoryIds: Set<String>,
     activeAdultSubcategoryIds: Set<String>,
+    bundledCategoryDomainCounts: Map<String, Int>,
     onImportedPresetIdsChange: (Set<String>) -> Unit,
+    onEnabledPresetIdsChange: (Set<String>) -> Unit,
     onActiveCategoryIdsChange: (Set<String>) -> Unit,
     onActiveAdultSubcategoryIdsChange: (Set<String>) -> Unit,
     categoryInput: String,
@@ -1317,11 +1331,13 @@ private fun BlockListTabContent(
             category.id == preset.id || category.name.equals(preset.name, ignoreCase = true)
         }
         preset.id to (storedCategory?.domains?.distinct()?.size
-            ?: if (preset.id == "adult-content") preset.domainCount else 0)
+            ?: bundledCategoryDomainCounts[preset.id]
+            ?: 0)
     }
-    val activeBlockedCount = blockedDomains.distinct().size + activeCategoryIds.sumOf { actualCategoryDomainCounts[it] ?: 0 }
+    val effectiveActiveCategoryIds = ProtectionPresetCatalog.effectiveCategories(enabledPresetIds, activeCategoryIds)
+    val activeBlockedCount = blockedDomains.distinct().size + effectiveActiveCategoryIds.sumOf { actualCategoryDomainCounts[it] ?: 0 }
     val availableCategoryIds = actualCategoryDomainCounts.filterValues { it > 0 }.keys
-    val activeCategoryCount = activeCategoryIds.intersect(availableCategoryIds).size
+    val activeCategoryCount = effectiveActiveCategoryIds.intersect(availableCategoryIds).size
 
     Box(
         modifier = Modifier.fillMaxSize()
@@ -1401,22 +1417,22 @@ private fun BlockListTabContent(
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         defaultPresets.forEach { preset ->
                             val availablePresetCategoryIds = preset.categoryIds.intersect(availableCategoryIds)
-                            val enabled = availablePresetCategoryIds.any { it in activeCategoryIds }
+                            val enabled = preset.id in enabledPresetIds
                             val domainCount = preset.categoryIds.sumOf { actualCategoryDomainCounts[it] ?: 0 }
                             BlocklistPresetCard(
                                 preset = preset.copy(meta = "${compactCount(domainCount)} domains - Category bundle"),
                                 imported = preset.id in importedPresetIds,
                                 enabled = enabled,
-                                activeCategoryIds = activeCategoryIds,
+                                activeCategoryIds = if (enabled) availablePresetCategoryIds.intersect(activeCategoryIds) else emptySet(),
                                 onImport = {
                                     onImportedPresetIdsChange(importedPresetIds + preset.id)
-                                    onActiveCategoryIdsChange(activeCategoryIds + availablePresetCategoryIds)
+                                    onEnabledPresetIdsChange(enabledPresetIds + preset.id)
                                 },
                                 onEnabledChange = { enabled ->
-                                    onActiveCategoryIdsChange(if (enabled) {
-                                        activeCategoryIds + availablePresetCategoryIds
+                                    onEnabledPresetIdsChange(if (enabled) {
+                                        enabledPresetIds + preset.id
                                     } else {
-                                        activeCategoryIds - availablePresetCategoryIds
+                                        enabledPresetIds - preset.id
                                     })
                                 }
                             )
@@ -1433,7 +1449,7 @@ private fun BlockListTabContent(
 
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         categoryPresets.forEach { preset ->
-                            val checked = preset.id in activeCategoryIds && preset.id in availableCategoryIds
+                            val checked = preset.id in effectiveActiveCategoryIds && preset.id in availableCategoryIds
                             CategoryPresetCard(
                                 preset = preset.copy(
                                     meta = (actualCategoryDomainCounts[preset.id] ?: 0).let { count ->
@@ -1446,11 +1462,17 @@ private fun BlockListTabContent(
                                 activeSubcategoryIds = if (preset.id == "adult-content") activeAdultSubcategoryIds else emptySet(),
                                 onActiveSubcategoryIdsChange = onActiveAdultSubcategoryIdsChange,
                                 onCheckedChange = { enabled ->
-                                    onActiveCategoryIdsChange(if (enabled) {
-                                        activeCategoryIds + preset.id
+                                    if (enabled) {
+                                        onActiveCategoryIdsChange(activeCategoryIds + preset.id)
                                     } else {
-                                        activeCategoryIds - preset.id
-                                    })
+                                        if (ProtectionPresetCatalog.canDisableCategory(
+                                                preset.id,
+                                                enabledPresetIds,
+                                                activeCategoryIds.intersect(availableCategoryIds)
+                                            )) {
+                                            onActiveCategoryIdsChange(activeCategoryIds - preset.id)
+                                        }
+                                    }
                                 }
                             )
                         }
@@ -2051,12 +2073,12 @@ private fun defaultBlocklistPresetsClean(): List<BlocklistPreset> {
             id = "shieldfocus-default",
             name = "ShieldFocus Default",
             meta = "6k domains - Category bundle",
-            description = "Recommended protection against adult content, malicious websites, phishing, and gambling.",
+            description = "Recommended protection against adult content, malicious websites, and phishing.",
             tags = listOf("Adult", "SafeSearch", "Family Safe"),
             accentColor = Color(0xFF1D7A4A),
             icon = Icons.Outlined.Shield,
             recommended = true,
-            categoryIds = setOf("adult-content", "malware-phishing", "gambling")
+            categoryIds = setOf("adult-content", "malware-phishing")
         ),
         BlocklistPreset(
             id = "family-protection",
@@ -2479,229 +2501,42 @@ private fun SettingsPageContent(
         onBack = onBack
     )
 
-    Card(
-        shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        )
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Text("Protection", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    Icons.Outlined.Shield,
-                    contentDescription = null,
-                    tint = Color(0xFF16835A),
-                    modifier = Modifier.size(22.dp)
-                )
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("DNS Protection", fontWeight = FontWeight.Medium)
-                    Text(
-                        "System-wide domain filtering through the ShieldFocus VPN.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Card(
-                    shape = RoundedCornerShape(6.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (protectionEnabled) Color(0xFFD1FAE5) else Color(0xFFF0F1F3)
-                    )
-                ) {
-                    Text(
-                        if (protectionEnabled) "Active" else "Inactive",
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        color = if (protectionEnabled) Color(0xFF16835A) else Color(0xFF6B7280),
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-            }
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    Icons.Outlined.Search,
-                    contentDescription = null,
-                    tint = Color(0xFF8A929F),
-                    modifier = Modifier.size(22.dp)
-                )
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Browser Content Protection", fontWeight = FontWeight.Medium)
-                    Text(
-                        "Filters URLs, searches, and page content in supported browsers.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Card(
-                    shape = RoundedCornerShape(6.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFFF0F1F3))
-                ) {
-                    Text(
-                        "Coming later",
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        color = Color(0xFF6B7280),
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-            }
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text("Strict mode", fontWeight = FontWeight.Medium)
-                    Text(
-                        "Use more cautious DNS decisions for unresolved or suspicious domains.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Switch(checked = strictMode, onCheckedChange = onStrictModeToggle)
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text("Redirect delay", fontWeight = FontWeight.Medium)
-                    Text(
-                        "$redirectDelaySeconds seconds on the desktop flow.",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            Button(
-                onClick = onRequestVpnSetup,
-                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp)
-            ) {
-                Text(if (protectionEnabled) "VPN active" else "Request VPN setup")
-            }
+    Text("Protection", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+    SettingsListRow(Icons.Outlined.Shield, "DNS Protection", "System-wide filtering through the ShieldFocus VPN.") {
+        SettingsStatusBadge(if (protectionEnabled) "Active" else "Inactive", protectionEnabled)
+    }
+    SettingsListRow(Icons.Outlined.Search, "Browser Content Protection", "URL, search, and page filtering in supported browsers.") {
+        SettingsStatusBadge("Coming later", false)
+    }
+    SettingsListRow(Icons.Outlined.Settings, "Strict mode", "Use cautious DNS decisions for unresolved or suspicious domains.") {
+        Switch(checked = strictMode, onCheckedChange = onStrictModeToggle)
+    }
+    SettingsListRow(Icons.Outlined.Schedule, "Redirect delay", "$redirectDelaySeconds seconds on the desktop flow.") {
+        Button(onClick = onRequestVpnSetup, contentPadding = PaddingValues(horizontal = 14.dp, vertical = 9.dp)) {
+            Text(if (protectionEnabled) "VPN active" else "Set up")
         }
     }
 
-    Card(
-        shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        )
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Text("Preferences", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text("Start on boot", fontWeight = FontWeight.Medium)
-                    Text(
-                        "Enable protection automatically after restart.",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-                Switch(checked = autoStartOnBoot, onCheckedChange = onAutoStartToggle)
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Restart after interruption", fontWeight = FontWeight.Medium)
-                    Text(
-                        "Restore protection if Android stops the service unexpectedly.",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-                Switch(
-                    checked = restartAfterInterruption,
-                    onCheckedChange = onRestartAfterInterruptionToggle
-                )
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text("Decision logging", fontWeight = FontWeight.Medium)
-                    Text(
-                        "Keep a local history of allow and block decisions.",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-                Switch(checked = loggingEnabled, onCheckedChange = onLoggingToggle)
-            }
-
-            if (loggingEnabled) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Activity retention", fontWeight = FontWeight.Medium)
-                    Text(
-                        "Automatically remove locally stored activity after the selected period.",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf(7, 30, 90).forEach { days ->
-                            SettingsChoiceChip(
-                                label = "$days days",
-                                selected = activityRetentionDays == days,
-                                onClick = { onActivityRetentionDaysChange(days) }
-                            )
-                        }
-                    }
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Hide sensitive domains", fontWeight = FontWeight.Medium)
-                        Text(
-                            "Mask domain names in activity views on this device.",
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
-                    Switch(
-                        checked = hideSensitiveDomains,
-                        onCheckedChange = onHideSensitiveDomainsToggle
-                    )
+    Text("Preferences", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+    SettingsListRow(Icons.Outlined.Settings, "Start on boot", "Enable protection automatically after restart.") {
+        Switch(checked = autoStartOnBoot, onCheckedChange = onAutoStartToggle)
+    }
+    SettingsListRow(Icons.Outlined.Shield, "Restart after interruption", "Restore protection if Android stops the service.") {
+        Switch(checked = restartAfterInterruption, onCheckedChange = onRestartAfterInterruptionToggle)
+    }
+    SettingsListRow(Icons.Outlined.ViewList, "Decision logging", "Keep a local history of allow and block decisions.") {
+        Switch(checked = loggingEnabled, onCheckedChange = onLoggingToggle)
+    }
+    if (loggingEnabled) {
+        SettingsListRow(Icons.Outlined.Schedule, "Activity retention", "Automatically remove locally stored activity.") {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                listOf(7, 30, 90).forEach { days ->
+                    SettingsChoiceChip("${days}d", activityRetentionDays == days) { onActivityRetentionDaysChange(days) }
                 }
             }
+        }
+        SettingsListRow(Icons.Outlined.Search, "Hide sensitive domains", "Mask domain names in activity views.") {
+            Switch(checked = hideSensitiveDomains, onCheckedChange = onHideSensitiveDomainsToggle)
         }
     }
 
@@ -2720,15 +2555,14 @@ private fun SettingsPageContent(
     )
     SettingsMenuRow(
         icon = Icons.Outlined.Shield,
-        title = "Always-on VPN & lockdown",
-        subtitle = "Prevent connections when ShieldFocus protection is unavailable",
+        title = "Android VPN compatibility",
+        subtitle = "Make sure ‘Block connections without VPN’ is turned off",
         onClick = onOpenVpnSettings
     )
-
     Text(
-        "In Android VPN settings, select ShieldFocus, enable Always-on VPN, then enable Block connections without VPN for the strongest enforcement.",
+        "ShieldFocus currently uses a DNS-only split tunnel. Do not enable Android's ‘Block connections without VPN’ option; lockdown requires a full traffic-forwarding tunnel and will block normal internet access.",
         style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant
+        color = Color(0xFFB45309)
     )
 
     BackupSection(
@@ -2746,18 +2580,47 @@ private fun AdvancedSettingsPageContent(
     ipv4DnsEnabled: Boolean,
     ipv6DnsEnabled: Boolean,
     dnsTimeoutMillis: Int,
+    safeSearchEnabled: Boolean,
     ipv4DnsHealth: DnsFamilyHealth,
     ipv6DnsHealth: DnsFamilyHealth,
     onBack: () -> Unit,
     onIpv4DnsToggle: (Boolean) -> Unit,
     onIpv6DnsToggle: (Boolean) -> Unit,
-    onDnsTimeoutMillisChange: (Int) -> Unit
+    onDnsTimeoutMillisChange: (Int) -> Unit,
+    onSafeSearchToggle: (Boolean) -> Unit
 ) {
     PageHeader(
         title = "Advanced Settings",
         subtitle = "Configure and diagnose DNS protection",
         onBack = onBack
     )
+
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Enforce Google SafeSearch", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(
+                    "Forces explicit-result filtering on Google and its regional search domains through DNS.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    "Encrypted search keywords cannot be read or blocked individually.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFFB45309)
+                )
+            }
+            Switch(checked = safeSearchEnabled, onCheckedChange = onSafeSearchToggle)
+        }
+    }
 
     Card(
         shape = RoundedCornerShape(16.dp),
@@ -2774,7 +2637,7 @@ private fun AdvancedSettingsPageContent(
 
             AdvancedDnsFamilyRow(
                 title = "IPv4 DNS protection",
-                description = "Filters direct IPv4 UDP DNS and strict public-resolver routes.",
+                description = "Filters direct IPv4 UDP DNS through the network's assigned resolver routes.",
                 checked = ipv4DnsEnabled,
                 protectionEnabled = protectionEnabled,
                 health = ipv4DnsHealth,
@@ -2897,9 +2760,9 @@ private fun AdvancedDnsFamilyRow(
                 }
             }
             Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (checked && protectionEnabled) {
+            if (checked) {
                 Text(
-                    "${health.processedRequests} processed · ${health.forwardingFailures} forwarding failures",
+                    "${health.processedRequests} successful · ${health.blockedRequests} blocked · ${health.forwardingFailures} failed",
                     style = MaterialTheme.typography.labelSmall,
                     color = if (latestAttemptFailed) Color(0xFFDC2626) else MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -2924,6 +2787,52 @@ private fun SettingsChoiceChip(label: String, selected: Boolean, onClick: () -> 
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
             color = if (selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
+}
+
+@Composable
+private fun SettingsListRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    subtitle: String,
+    trailing: @Composable () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        colors = CardDefaults.cardColors(containerColor = Color.White)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Card(shape = RoundedCornerShape(10.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFDDF6E9))) {
+                Icon(icon, null, tint = Color(0xFF16835A), modifier = Modifier.padding(9.dp).size(20.dp))
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, fontWeight = FontWeight.SemiBold)
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Box(contentAlignment = Alignment.CenterEnd) { trailing() }
+        }
+    }
+}
+
+@Composable
+private fun SettingsStatusBadge(label: String, active: Boolean) {
+    Card(
+        shape = RoundedCornerShape(6.dp),
+        colors = CardDefaults.cardColors(containerColor = if (active) Color(0xFFD1FAE5) else Color(0xFFF0F1F3))
+    ) {
+        Text(
+            label,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            color = if (active) Color(0xFF16835A) else Color(0xFF6B7280),
+            style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.SemiBold
         )
     }
@@ -3947,11 +3856,12 @@ private fun BackupSection(
     onExport: () -> Unit,
     onImport: () -> Unit
 ) {
+    Text("Backup", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
     Card(
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        )
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        colors = CardDefaults.cardColors(containerColor = Color.White)
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -4505,10 +4415,14 @@ private fun ActivityDecisionRow(decision: Decision, count: Int) {
 private fun decisionSubtitle(decision: Decision): String {
     val reason = humanReadableDecisionReason(decision)
     val category = when {
-        decision.domain.contains("doubleclick", true) || decision.domain.contains("google", true) -> "Advertising"
-        decision.domain.contains("github", true) || decision.domain.contains("stackoverflow", true) -> "Development"
-        decision.domain.contains("snapchat", true) || decision.domain.contains("hotjar", true) -> "Tracking"
-        else -> if (decision.allow) "Development" else "Blocked request"
+        decision.reason.contains(":adult") -> "Adult Content"
+        decision.reason.contains(":advertising") -> "Advertising"
+        decision.reason.contains(":tracking") -> "Tracking"
+        decision.reason.contains(":malware") -> "Malware"
+        decision.reason.contains(":gambling") -> "Gambling"
+        decision.reason.contains(":custom") -> "Custom Rule"
+        decision.allow -> "Allowed"
+        else -> "Blocked request"
     }
     return "$category  ·  $reason"
 }
@@ -4517,6 +4431,12 @@ private fun humanReadableDecisionReason(decision: Decision): String = when (deci
     "allowlist" -> "Allowed by Custom Rule"
     "blocked-domain" -> "Blocked by Adult Content"
     "blocked-domain-variant" -> "Blocked by Strong Adult Protection"
+    "blocked:adult", "blocked:strict:adult" -> "Blocked by Adult Content"
+    "blocked:advertising", "blocked:strict:advertising" -> "Blocked by Advertising"
+    "blocked:tracking", "blocked:strict:tracking" -> "Blocked by Tracking"
+    "blocked:malware", "blocked:strict:malware" -> "Blocked by Malware"
+    "blocked:gambling", "blocked:strict:gambling" -> "Blocked by Gambling"
+    "blocked:custom", "blocked:strict:custom" -> "Blocked by Custom Rule"
     "allow-strict", "allow" -> "Allowed · no matching block rule"
     "invalid-hostname" -> "Allowed · invalid domain"
     else -> decision.reason.ifBlank {

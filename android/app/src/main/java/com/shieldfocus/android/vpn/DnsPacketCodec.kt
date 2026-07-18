@@ -49,6 +49,38 @@ object DnsPacketCodec {
         return output.toByteArray()
     }
 
+    fun buildCnameDnsPayload(query: DnsQueryPacket, targetHostname: String): ByteArray {
+        val output = ByteArrayOutputStream()
+        val targetBytes = encodeHostname(targetHostname)
+
+        writeUint16(output, query.transactionId)
+        writeUint16(output, 0x8180)
+        writeUint16(output, 1)
+        writeUint16(output, 1)
+        writeUint16(output, 0)
+        writeUint16(output, 0)
+        output.write(query.questionBytes)
+        writeUint16(output, 0xC00C)
+        writeUint16(output, 5)
+        writeUint16(output, 1)
+        output.write(byteArrayOf(0, 0, 1, 44)) // 300-second TTL
+        writeUint16(output, targetBytes.size)
+        output.write(targetBytes)
+        return output.toByteArray()
+    }
+
+    private fun encodeHostname(hostname: String): ByteArray {
+        val output = ByteArrayOutputStream()
+        hostname.trim().trimEnd('.').lowercase().split('.').forEach { label ->
+            require(label.isNotEmpty() && label.length <= 63) { "Invalid DNS label" }
+            val bytes = label.toByteArray(Charsets.US_ASCII)
+            output.write(bytes.size)
+            output.write(bytes)
+        }
+        output.write(0)
+        return output.toByteArray()
+    }
+
     fun buildResponsePacket(query: DnsQueryPacket, dnsPayload: ByteArray): ByteArray {
         return when (query.ipVersion) {
             4 -> buildIpv4ResponsePacket(query, dnsPayload)

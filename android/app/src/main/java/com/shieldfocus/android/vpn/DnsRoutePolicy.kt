@@ -11,8 +11,6 @@ object DnsRoutePolicy {
     fun select(
         networkDnsServers: List<InetAddress>,
         fallbackDnsServers: List<InetAddress>,
-        strictDnsResolvers: List<InetAddress>,
-        strictMode: Boolean,
         ipv4Enabled: Boolean,
         ipv6Enabled: Boolean
     ): DnsRouteSelection {
@@ -23,19 +21,22 @@ object DnsRoutePolicy {
             }
             .distinctBy { it.hostAddress }
 
-        val enabledStrictResolvers = if (strictMode) {
-            strictDnsResolvers.filter { isAddressFamilyEnabled(it, ipv4Enabled, ipv6Enabled) }
-        } else {
-            emptyList()
-        }
-
         return DnsRouteSelection(
             networkDnsServers = enabledNetworkServers,
-            routedDnsServers = (enabledNetworkServers + enabledStrictResolvers).distinctBy { it.hostAddress }
+            // Only virtual DNS endpoints belong in the TUN. Routing a real resolver's
+            // entire IP captures TCP DNS, DoT, HTTPS and other traffic that this
+            // DNS-only packet loop cannot forward.
+            routedDnsServers = buildList {
+                if (ipv4Enabled) add(InetAddress.getByName(VIRTUAL_IPV4_DNS))
+                if (ipv6Enabled) add(InetAddress.getByName(VIRTUAL_IPV6_DNS))
+            }
         )
     }
 
     fun isAddressFamilyEnabled(address: InetAddress, ipv4Enabled: Boolean, ipv6Enabled: Boolean): Boolean {
         return if (address.address.size == 4) ipv4Enabled else ipv6Enabled
     }
+
+    const val VIRTUAL_IPV4_DNS = "10.10.0.1"
+    const val VIRTUAL_IPV6_DNS = "fd00:1:fd00:1::2"
 }
