@@ -27,6 +27,9 @@ private val Context.shieldFocusDataStore by preferencesDataStore(name = DATA_STO
 
 private val KEY_ENABLED = booleanPreferencesKey("enabled")
 private val KEY_STRICT_MODE = booleanPreferencesKey("strict_mode")
+private val KEY_IPV4_DNS_ENABLED = booleanPreferencesKey("ipv4_dns_enabled")
+private val KEY_IPV6_DNS_ENABLED = booleanPreferencesKey("ipv6_dns_enabled")
+private val KEY_DNS_TIMEOUT_MILLIS = intPreferencesKey("dns_timeout_millis")
 private val KEY_REDIRECT_DELAY = intPreferencesKey("redirect_delay")
 private val KEY_AUTO_START_ON_BOOT = booleanPreferencesKey("auto_start_on_boot")
 private val KEY_RESTART_AFTER_INTERRUPTION = booleanPreferencesKey("restart_after_interruption")
@@ -76,6 +79,9 @@ class ProtectionStore(context: Context) {
         ProtectionSettings(
             enabled = preferences[KEY_ENABLED] ?: true,
             strictMode = preferences[KEY_STRICT_MODE] ?: true,
+            ipv4DnsEnabled = preferences[KEY_IPV4_DNS_ENABLED] ?: true,
+            ipv6DnsEnabled = preferences[KEY_IPV6_DNS_ENABLED] ?: true,
+            dnsTimeoutMillis = (preferences[KEY_DNS_TIMEOUT_MILLIS] ?: 2_000).coerceIn(1_000, 10_000),
             redirectDelaySeconds = preferences[KEY_REDIRECT_DELAY] ?: 5,
             autoStartOnBoot = preferences[KEY_AUTO_START_ON_BOOT] ?: false,
             restartAfterInterruption = preferences[KEY_RESTART_AFTER_INTERRUPTION] ?: true,
@@ -89,6 +95,9 @@ class ProtectionStore(context: Context) {
         dataStore.edit { preferences ->
             preferences[KEY_ENABLED] = settings.enabled
             preferences[KEY_STRICT_MODE] = settings.strictMode
+            preferences[KEY_IPV4_DNS_ENABLED] = settings.ipv4DnsEnabled || !settings.ipv6DnsEnabled
+            preferences[KEY_IPV6_DNS_ENABLED] = settings.ipv6DnsEnabled
+            preferences[KEY_DNS_TIMEOUT_MILLIS] = settings.dnsTimeoutMillis.coerceIn(1_000, 10_000)
             preferences[KEY_REDIRECT_DELAY] = settings.redirectDelaySeconds
             preferences[KEY_AUTO_START_ON_BOOT] = settings.autoStartOnBoot
             preferences[KEY_RESTART_AFTER_INTERRUPTION] = settings.restartAfterInterruption
@@ -387,6 +396,9 @@ class ProtectionStore(context: Context) {
                 val settings = loadSettings()
                 put("enabled", settings.enabled)
                 put("strictMode", settings.strictMode)
+                put("ipv4DnsEnabled", settings.ipv4DnsEnabled)
+                put("ipv6DnsEnabled", settings.ipv6DnsEnabled)
+                put("dnsTimeoutMillis", settings.dnsTimeoutMillis)
                 put("redirectDelaySeconds", settings.redirectDelaySeconds)
                 put("autoStartOnBoot", settings.autoStartOnBoot)
                 put("restartAfterInterruption", settings.restartAfterInterruption)
@@ -441,6 +453,9 @@ class ProtectionStore(context: Context) {
             val settings = ProtectionSettings(
                 enabled = settingsObject.optBoolean("enabled", true),
                 strictMode = settingsObject.optBoolean("strictMode", true),
+                ipv4DnsEnabled = settingsObject.optBoolean("ipv4DnsEnabled", true),
+                ipv6DnsEnabled = settingsObject.optBoolean("ipv6DnsEnabled", true),
+                dnsTimeoutMillis = settingsObject.optInt("dnsTimeoutMillis", 2_000).coerceIn(1_000, 10_000),
                 redirectDelaySeconds = settingsObject.optInt("redirectDelaySeconds", 5),
                 autoStartOnBoot = settingsObject.optBoolean("autoStartOnBoot", false),
                 restartAfterInterruption = settingsObject.optBoolean("restartAfterInterruption", true),

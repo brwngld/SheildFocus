@@ -85,16 +85,16 @@ Strict Mode currently strengthens domain filtering by:
 - Blocking exact domains and all of their subdomains
 - Detecting the same site label across alternative top-level domains
 - Detecting common numbered, mirror, proxy, official, and unblocked variants
-- Intercepting IPv4 DNS requests sent to the device resolver and a bounded set of well-known public resolvers
+- Intercepting direct IPv4 and IPv6 UDP DNS requests sent to the device resolver and a bounded set of well-known public resolvers
 - Restarting the VPN automatically when Strict Mode changes so the new routes and policy take effect
 - Supporting Android Always-on VPN and the system's **Block connections without VPN** lockdown option
 
-Strict Mode is deliberately implemented without a default VPN route. The current tunnel understands IPv4 UDP DNS packets; routing all device traffic into it would drop unsupported TCP, IPv6, and general application traffic.
+Strict Mode is deliberately implemented without a default VPN route. The current tunnel understands direct IPv4 and IPv6 UDP DNS packets; routing all device traffic into it would drop unsupported TCP and general application traffic.
 
 The following bypasses or limitations remain:
 
 - **Unknown DNS-over-HTTPS providers:** ShieldFocus fails closed for encrypted connections to the known resolver IPs it routes, but an app can use another DoH provider or relay that is not yet known to ShieldFocus.
-- **IPv6 DNS:** The current packet codec and response builder support IPv4 UDP DNS only. IPv6 resolver traffic is not yet intercepted.
+- **IPv6 extension headers:** Direct IPv6 UDP DNS is supported, including valid response checksums. IPv6 packets that use extension-header chains are not parsed yet.
 - **DNS over TCP:** DNS clients that fall back to TCP are not currently forwarded by the tunnel.
 - **Direct-IP access:** A connection made directly to a server IP may not reveal a hostname, so it cannot be classified reliably by the domain policy.
 - **Changing aliases:** Adult sites can introduce unrelated mirror names that contain no recognizable blocked-domain label. Updated curated lists are still required.
@@ -104,7 +104,7 @@ The following bypasses or limitations remain:
 
 Implement these as separate, tested phases to avoid breaking device connectivity:
 
-1. Add IPv6 UDP DNS parsing, blocking responses, routes, and packet-level tests.
+1. Add IPv6 extension-header traversal for UDP DNS packets that are not carried directly after the base IPv6 header.
 2. Add DNS-over-TCP handling for routed resolver addresses.
 3. Maintain an updateable local list of known DoH resolver hostnames and IP addresses.
 4. Detect and fail closed on unsupported encrypted-DNS traffic only when Strict Mode is enabled.
@@ -112,6 +112,19 @@ Implement these as separate, tested phases to avoid breaking device connectivity
 6. Add authentication around custom allow rules and protection changes when Protection Lock is enabled.
 
 Do not claim that ShieldFocus blocks every possible endpoint until the dual-stack and encrypted-DNS phases are complete. Android Always-on VPN with **Block connections without VPN** should remain the recommended strongest configuration.
+
+## Advanced DNS Settings
+
+The existing Settings screen links to a dedicated **Advanced Settings** page. It exposes network controls separately so protocol-specific problems can be isolated:
+
+- **IPv4 DNS protection:** controls the IPv4 VPN address, device DNS routes, fallback resolvers, and strict public-resolver routes.
+- **IPv6 DNS protection:** independently controls the IPv6 VPN address and equivalent IPv6 resolver routes.
+- **DNS response timeout:** selects a 1, 2, 4, or 6 second UDP forwarding timeout.
+- **Per-family runtime health:** shows Active, Ready, Disabled, or Problem independently for IPv4 and IPv6, together with processed-request and forwarding-failure counts for the current VPN session.
+
+At least one IP family must remain enabled. Changing IPv4, IPv6, Strict Mode, or the DNS timeout while protection is active performs a controlled VPN restart so the new routes and forwarder configuration take effect.
+
+For diagnosis, disable one family temporarily and test protection again. If the problem disappears, the disabled protocol or its resolver path is the likely source. Re-enable both families after testing for complete dual-stack DNS coverage.
 
 ## Avoid For v1
 

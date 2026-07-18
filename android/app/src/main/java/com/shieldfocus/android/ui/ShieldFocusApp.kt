@@ -92,6 +92,7 @@ import androidx.compose.material.icons.outlined.ChevronRight
 import com.shieldfocus.android.model.BlockingCategory
 import com.shieldfocus.android.model.BlockingSchedule
 import com.shieldfocus.android.model.Decision
+import com.shieldfocus.android.vpn.DnsFamilyHealth
 import com.shieldfocus.android.vpn.VpnConnectionState
 import java.text.DateFormat
 import java.util.Date
@@ -106,6 +107,11 @@ fun ShieldFocusApp(
     vpnConnectedAtMillis: Long?,
     vpnErrorMessage: String?,
     strictMode: Boolean,
+    ipv4DnsEnabled: Boolean,
+    ipv6DnsEnabled: Boolean,
+    dnsTimeoutMillis: Int,
+    ipv4DnsHealth: DnsFamilyHealth,
+    ipv6DnsHealth: DnsFamilyHealth,
     redirectDelaySeconds: Int,
     autoStartOnBoot: Boolean,
     restartAfterInterruption: Boolean,
@@ -122,6 +128,9 @@ fun ShieldFocusApp(
     activeAdultSubcategoryIds: Set<String>,
     onProtectionToggle: (Boolean) -> Unit,
     onStrictModeToggle: (Boolean) -> Unit,
+    onIpv4DnsToggle: (Boolean) -> Unit,
+    onIpv6DnsToggle: (Boolean) -> Unit,
+    onDnsTimeoutMillisChange: (Int) -> Unit,
     onAutoStartToggle: (Boolean) -> Unit,
     onRestartAfterInterruptionToggle: (Boolean) -> Unit,
     onLoggingToggle: (Boolean) -> Unit,
@@ -255,6 +264,7 @@ fun ShieldFocusApp(
                         schedulesReturnPage = SecondaryPage.Settings
                         secondaryPage = SecondaryPage.Schedules
                     },
+                    onOpenAdvancedSettings = { secondaryPage = SecondaryPage.AdvancedSettings },
                     onStrictModeToggle = onStrictModeToggle,
                     onAutoStartToggle = onAutoStartToggle,
                     onRestartAfterInterruptionToggle = onRestartAfterInterruptionToggle,
@@ -271,6 +281,19 @@ fun ShieldFocusApp(
                         backupMessage = "Backup ready"
                     },
                     onImport = { backupMessage = if (onImportBackup(backupInput.text)) "Backup imported" else "Import failed" }
+                )
+            } else if (secondaryPage == SecondaryPage.AdvancedSettings) {
+                AdvancedSettingsPageContent(
+                    protectionEnabled = protectionEnabled,
+                    ipv4DnsEnabled = ipv4DnsEnabled,
+                    ipv6DnsEnabled = ipv6DnsEnabled,
+                    dnsTimeoutMillis = dnsTimeoutMillis,
+                    ipv4DnsHealth = ipv4DnsHealth,
+                    ipv6DnsHealth = ipv6DnsHealth,
+                    onBack = { secondaryPage = SecondaryPage.Settings },
+                    onIpv4DnsToggle = onIpv4DnsToggle,
+                    onIpv6DnsToggle = onIpv6DnsToggle,
+                    onDnsTimeoutMillisChange = onDnsTimeoutMillisChange
                 )
             } else if (secondaryPage == SecondaryPage.Schedules) {
                 SchedulesPageContent(
@@ -2419,6 +2442,7 @@ private enum class BlocklistSection {
 
 private enum class SecondaryPage {
     Settings,
+    AdvancedSettings,
     Schedules
 }
 
@@ -2434,6 +2458,7 @@ private fun SettingsPageContent(
     hideSensitiveDomains: Boolean,
     onBack: () -> Unit,
     onOpenSchedules: () -> Unit,
+    onOpenAdvancedSettings: () -> Unit,
     onStrictModeToggle: (Boolean) -> Unit,
     onAutoStartToggle: (Boolean) -> Unit,
     onRestartAfterInterruptionToggle: (Boolean) -> Unit,
@@ -2688,6 +2713,12 @@ private fun SettingsPageContent(
         onClick = onOpenSchedules
     )
     SettingsMenuRow(
+        icon = Icons.Outlined.Settings,
+        title = "Advanced Settings",
+        subtitle = "Configure IPv4, IPv6, strict DNS, and timeouts",
+        onClick = onOpenAdvancedSettings
+    )
+    SettingsMenuRow(
         icon = Icons.Outlined.Shield,
         title = "Always-on VPN & lockdown",
         subtitle = "Prevent connections when ShieldFocus protection is unavailable",
@@ -2707,6 +2738,175 @@ private fun SettingsPageContent(
         onExport = onExport,
         onImport = onImport
     )
+}
+
+@Composable
+private fun AdvancedSettingsPageContent(
+    protectionEnabled: Boolean,
+    ipv4DnsEnabled: Boolean,
+    ipv6DnsEnabled: Boolean,
+    dnsTimeoutMillis: Int,
+    ipv4DnsHealth: DnsFamilyHealth,
+    ipv6DnsHealth: DnsFamilyHealth,
+    onBack: () -> Unit,
+    onIpv4DnsToggle: (Boolean) -> Unit,
+    onIpv6DnsToggle: (Boolean) -> Unit,
+    onDnsTimeoutMillisChange: (Int) -> Unit
+) {
+    PageHeader(
+        title = "Advanced Settings",
+        subtitle = "Configure and diagnose DNS protection",
+        onBack = onBack
+    )
+
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Text("DNS protocol protection", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(
+                "IPv4 and IPv6 are controlled separately so one protocol can be isolated while diagnosing connection problems.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            AdvancedDnsFamilyRow(
+                title = "IPv4 DNS protection",
+                description = "Filters direct IPv4 UDP DNS and strict public-resolver routes.",
+                checked = ipv4DnsEnabled,
+                protectionEnabled = protectionEnabled,
+                health = ipv4DnsHealth,
+                switchEnabled = !ipv4DnsEnabled || ipv6DnsEnabled,
+                onCheckedChange = onIpv4DnsToggle
+            )
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+            AdvancedDnsFamilyRow(
+                title = "IPv6 DNS protection",
+                description = "Filters direct IPv6 UDP DNS with IPv6 response checksums.",
+                checked = ipv6DnsEnabled,
+                protectionEnabled = protectionEnabled,
+                health = ipv6DnsHealth,
+                switchEnabled = !ipv6DnsEnabled || ipv4DnsEnabled,
+                onCheckedChange = onIpv6DnsToggle
+            )
+
+            Text(
+                "At least one DNS protocol must remain enabled. Changing either option restarts active protection so routes are rebuilt.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color(0xFFB45309)
+            )
+        }
+    }
+
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("DNS response timeout", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(
+                "Increase the timeout on slow networks. A longer timeout may delay failed requests.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(1_000, 2_000, 4_000, 6_000).forEach { timeout ->
+                    SettingsChoiceChip(
+                        label = "${timeout / 1_000}s",
+                        selected = dnsTimeoutMillis == timeout,
+                        onClick = { onDnsTimeoutMillisChange(timeout) }
+                    )
+                }
+            }
+        }
+    }
+
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFEAF0FF))
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Protocol diagnostics", fontWeight = FontWeight.Bold, color = Color(0xFF1D4ED8))
+            Text(
+                "If protection works after disabling one protocol, that protocol or its network resolver path is the likely source of the problem. Re-enable it after testing to restore dual-stack coverage.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                "Android Private DNS and DNS-over-HTTPS may use encrypted transports that are not handled by the UDP DNS forwarder.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun AdvancedDnsFamilyRow(
+    title: String,
+    description: String,
+    checked: Boolean,
+    protectionEnabled: Boolean,
+    health: DnsFamilyHealth,
+    switchEnabled: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    val latestAttemptFailed = health.lastFailureMillis != null &&
+        (health.lastSuccessMillis == null || health.lastFailureMillis > health.lastSuccessMillis)
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(title, fontWeight = FontWeight.Medium)
+                Card(
+                    shape = RoundedCornerShape(999.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = when {
+                            !checked -> Color(0xFFF0F1F3)
+                            protectionEnabled && latestAttemptFailed -> Color(0xFFFFE5E6)
+                            protectionEnabled -> Color(0xFFD1FAE5)
+                            else -> Color(0xFFFFF0C9)
+                        }
+                    )
+                ) {
+                    Text(
+                        text = when {
+                            !checked -> "Disabled"
+                            protectionEnabled && latestAttemptFailed -> "Problem"
+                            protectionEnabled -> "Active"
+                            else -> "Ready"
+                        },
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                        color = when {
+                            !checked -> Color(0xFF6B7280)
+                            protectionEnabled && latestAttemptFailed -> Color(0xFFDC2626)
+                            protectionEnabled -> Color(0xFF16835A)
+                            else -> Color(0xFFB45309)
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+            Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (checked && protectionEnabled) {
+                Text(
+                    "${health.processedRequests} processed · ${health.forwardingFailures} forwarding failures",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (latestAttemptFailed) Color(0xFFDC2626) else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = switchEnabled)
+    }
 }
 
 @Composable

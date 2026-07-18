@@ -67,8 +67,9 @@ class MainActivity : ComponentActivity() {
                 protectionStore.decisionHistoryFlow().collect { value = it }
             }
             val vpnStatus by ShieldFocusVpnService.connectionStatus.collectAsState()
+            val dnsHealth by ShieldFocusVpnService.dnsHealth.collectAsState()
             var startVpnFlow: (() -> Unit)? = null
-            var restartAfterStrictModeChange by remember { mutableStateOf(false) }
+            var restartAfterNetworkSettingsChange by remember { mutableStateOf(false) }
 
             LaunchedEffect(vpnStatus.state) {
                 when (vpnStatus.state) {
@@ -81,9 +82,9 @@ class MainActivity : ComponentActivity() {
                         protectionStore.saveSettings(settings)
                         if (
                             vpnStatus.state == VpnConnectionState.Disconnected &&
-                            restartAfterStrictModeChange
+                            restartAfterNetworkSettingsChange
                         ) {
-                            restartAfterStrictModeChange = false
+                            restartAfterNetworkSettingsChange = false
                             startVpnFlow?.invoke()
                         }
                     }
@@ -149,6 +150,14 @@ class MainActivity : ComponentActivity() {
                 protectionStore.saveSettings(nextSettings)
             }
 
+            fun updateNetworkSettings(nextSettings: ProtectionSettings) {
+                updateSettings(nextSettings)
+                if (vpnStatus.state == VpnConnectionState.Connected) {
+                    restartAfterNetworkSettingsChange = true
+                    stopProtection()
+                }
+            }
+
             fun updateBlockedDomains(nextDomains: Set<String>) {
                 blockedDomains = nextDomains.sorted()
                 protectionStore.saveBlockedDomains(nextDomains)
@@ -184,6 +193,11 @@ class MainActivity : ComponentActivity() {
                     vpnConnectedAtMillis = vpnStatus.connectedAtMillis,
                     vpnErrorMessage = vpnStatus.errorMessage,
                     strictMode = settings.strictMode,
+                    ipv4DnsEnabled = settings.ipv4DnsEnabled,
+                    ipv6DnsEnabled = settings.ipv6DnsEnabled,
+                    dnsTimeoutMillis = settings.dnsTimeoutMillis,
+                    ipv4DnsHealth = dnsHealth.ipv4,
+                    ipv6DnsHealth = dnsHealth.ipv6,
                     redirectDelaySeconds = settings.redirectDelaySeconds,
                     autoStartOnBoot = settings.autoStartOnBoot,
                     restartAfterInterruption = settings.restartAfterInterruption,
@@ -206,11 +220,20 @@ class MainActivity : ComponentActivity() {
                         }
                     },
                     onStrictModeToggle = { enabled ->
-                        updateSettings(settings.copy(strictMode = enabled))
-                        if (vpnStatus.state == VpnConnectionState.Connected) {
-                            restartAfterStrictModeChange = true
-                            stopProtection()
+                        updateNetworkSettings(settings.copy(strictMode = enabled))
+                    },
+                    onIpv4DnsToggle = { enabled ->
+                        if (enabled || settings.ipv6DnsEnabled) {
+                            updateNetworkSettings(settings.copy(ipv4DnsEnabled = enabled))
                         }
+                    },
+                    onIpv6DnsToggle = { enabled ->
+                        if (enabled || settings.ipv4DnsEnabled) {
+                            updateNetworkSettings(settings.copy(ipv6DnsEnabled = enabled))
+                        }
+                    },
+                    onDnsTimeoutMillisChange = { timeoutMillis ->
+                        updateNetworkSettings(settings.copy(dnsTimeoutMillis = timeoutMillis.coerceIn(1_000, 10_000)))
                     },
                     onAutoStartToggle = { enabled ->
                         updateSettings(settings.copy(autoStartOnBoot = enabled))

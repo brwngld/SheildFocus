@@ -43,6 +43,18 @@ data class VpnConnectionStatus(
     val errorMessage: String? = null
 )
 
+data class DnsFamilyHealth(
+    val processedRequests: Int = 0,
+    val forwardingFailures: Int = 0,
+    val lastSuccessMillis: Long? = null,
+    val lastFailureMillis: Long? = null
+)
+
+data class VpnDnsHealth(
+    val ipv4: DnsFamilyHealth = DnsFamilyHealth(),
+    val ipv6: DnsFamilyHealth = DnsFamilyHealth()
+)
+
 class ShieldFocusVpnService : VpnService() {
     private val running = AtomicBoolean(false)
     private val tunnelGeneration = AtomicInteger(0)
@@ -83,6 +95,7 @@ class ShieldFocusVpnService : VpnService() {
         }
 
         updateStatus(VpnConnectionState.Connecting)
+        resetDnsHealth()
 
         val generation = tunnelGeneration.incrementAndGet()
 
@@ -122,23 +135,32 @@ class ShieldFocusVpnService : VpnService() {
         val store = ProtectionStore(applicationContext)
         val settings = store.loadSettings()
         val allowedDomains = store.loadAllowedDomains()
-        val networkDnsServers = collectDnsServers().ifEmpty {
-            listOf(
-                InetAddress.getByName("1.1.1.1") as Inet4Address,
-                InetAddress.getByName("8.8.8.8") as Inet4Address
-            )
-        }
-        val dnsServers = (networkDnsServers + if (settings.strictMode) strictDnsResolvers() else emptyList())
-            .distinctBy { it.hostAddress }
+        val routeSelection = DnsRoutePolicy.select(
+            networkDnsServers = collectDnsServers(),
+            fallbackDnsServers = fallbackDnsResolvers(),
+            strictDnsResolvers = strictDnsResolvers(),
+            strictMode = settings.strictMode,
+            ipv4Enabled = settings.ipv4DnsEnabled,
+            ipv6Enabled = settings.ipv6DnsEnabled
+        )
 
         val builder = Builder()
             .setSession("ShieldFocus DNS Filter")
             .setMtu(1500)
-            .addAddress("10.10.0.2", 32)
             .setBlocking(true)
 
-        dnsServers.forEach { server ->
-            builder.addRoute(server, 32)
+        if (settings.ipv4DnsEnabled) {
+            builder.addAddress("10.10.0.2", 32)
+        }
+        if (settings.ipv6DnsEnabled) {
+            builder.addAddress("fd00:1:fd00:1::1", 128)
+        }
+
+        routeSelection.routedDnsServers.forEach { server ->
+            val routeAddress = server.hostAddress ?: return@forEach
+            builder.addRoute(routeAddress, if (server.address.size == 4) 32 else 128)
+        }
+        routeSelection.networkDnsServers.forEach { server ->
             builder.addDnsServer(server)
         }
 
@@ -210,8 +232,15 @@ class ShieldFocusVpnService : VpnService() {
                     }
 
                     val dnsPayload = if (decision.allow) {
-                        DnsForwarder.forward(query, this) ?: continue
+                        val forwarded = DnsForwarder.forward(query, this, settings.dnsTimeoutMillis)
+                        if (forwarded == null) {
+                            recordDnsFailure(query.ipVersion)
+                            continue
+                        }
+                        recordDnsSuccess(query.ipVersion)
+                        forwarded
                     } else {
+                        recordDnsSuccess(query.ipVersion)
                         DnsPacketCodec.buildBlockedDnsPayload(query)
                     }
 
@@ -290,18 +319,27 @@ class ShieldFocusVpnService : VpnService() {
         updateStatus(VpnConnectionState.Disconnected)
     }
 
-    private fun collectDnsServers(): List<Inet4Address> {
+    private fun collectDnsServers(): List<InetAddress> {
         val connectivityManager = getSystemService(ConnectivityManager::class.java) ?: return emptyList()
         val activeNetwork: Network = connectivityManager.activeNetwork ?: return emptyList()
         val linkProperties = connectivityManager.getLinkProperties(activeNetwork) ?: return emptyList()
 
-        return linkProperties.dnsServers.filterIsInstance<Inet4Address>()
+        return linkProperties.dnsServers
     }
 
-    private fun strictDnsResolvers(): List<Inet4Address> {
+    private fun strictDnsResolvers(): List<InetAddress> {
         return STRICT_DNS_RESOLVER_ADDRESSES.mapNotNull { address ->
-            runCatching { InetAddress.getByName(address) as? Inet4Address }.getOrNull()
+            runCatching { InetAddress.getByName(address) }.getOrNull()
         }
+    }
+
+    private fun fallbackDnsResolvers(): List<InetAddress> {
+        return listOf(
+            InetAddress.getByName("1.1.1.1") as Inet4Address,
+            InetAddress.getByName("8.8.8.8") as Inet4Address,
+            InetAddress.getByName("2606:4700:4700::1111"),
+            InetAddress.getByName("2001:4860:4860::8888")
+        )
     }
 
     private fun createNotificationChannel() {
@@ -350,6 +388,8 @@ class ShieldFocusVpnService : VpnService() {
 
         private val mutableConnectionStatus = MutableStateFlow(VpnConnectionStatus())
         val connectionStatus: StateFlow<VpnConnectionStatus> = mutableConnectionStatus.asStateFlow()
+        private val mutableDnsHealth = MutableStateFlow(VpnDnsHealth())
+        val dnsHealth: StateFlow<VpnDnsHealth> = mutableDnsHealth.asStateFlow()
 
         fun reportConnecting() {
             updateStatus(VpnConnectionState.Connecting)
@@ -371,6 +411,37 @@ class ShieldFocusVpnService : VpnService() {
             mutableConnectionStatus.value = VpnConnectionStatus(state, connectedAtMillis, errorMessage)
         }
 
+        private fun resetDnsHealth() {
+            mutableDnsHealth.value = VpnDnsHealth()
+        }
+
+        private fun recordDnsSuccess(ipVersion: Int) {
+            val now = System.currentTimeMillis()
+            mutableDnsHealth.value = mutableDnsHealth.value.update(ipVersion) { current ->
+                current.copy(
+                    processedRequests = current.processedRequests + 1,
+                    lastSuccessMillis = now
+                )
+            }
+        }
+
+        private fun recordDnsFailure(ipVersion: Int) {
+            val now = System.currentTimeMillis()
+            mutableDnsHealth.value = mutableDnsHealth.value.update(ipVersion) { current ->
+                current.copy(
+                    forwardingFailures = current.forwardingFailures + 1,
+                    lastFailureMillis = now
+                )
+            }
+        }
+
+        private fun VpnDnsHealth.update(
+            ipVersion: Int,
+            transform: (DnsFamilyHealth) -> DnsFamilyHealth
+        ): VpnDnsHealth {
+            return if (ipVersion == 6) copy(ipv6 = transform(ipv6)) else copy(ipv4 = transform(ipv4))
+        }
+
         private const val CHANNEL_ID = "shieldfocus_vpn"
         private const val NOTIFICATION_ID = 1001
         private const val TAG = "ShieldFocusVpn"
@@ -384,7 +455,17 @@ class ShieldFocusVpnService : VpnService() {
             "94.140.14.14",
             "94.140.15.15",
             "208.67.222.222",
-            "208.67.220.220"
+            "208.67.220.220",
+            "2606:4700:4700::1111",
+            "2606:4700:4700::1001",
+            "2001:4860:4860::8888",
+            "2001:4860:4860::8844",
+            "2620:fe::fe",
+            "2620:fe::9",
+            "2a10:50c0::ad1:ff",
+            "2a10:50c0::ad2:ff",
+            "2620:119:35::35",
+            "2620:119:53::53"
         )
     }
 
@@ -395,4 +476,10 @@ class ShieldFocusVpnService : VpnService() {
     ) {
         Companion.updateStatus(state, connectedAtMillis, errorMessage)
     }
+
+    private fun resetDnsHealth() = Companion.resetDnsHealth()
+
+    private fun recordDnsSuccess(ipVersion: Int) = Companion.recordDnsSuccess(ipVersion)
+
+    private fun recordDnsFailure(ipVersion: Int) = Companion.recordDnsFailure(ipVersion)
 }

@@ -6,7 +6,7 @@ import java.net.DatagramSocket
 import java.net.InetAddress
 
 object DnsForwarder {
-    fun forward(query: DnsQueryPacket, vpnService: VpnService): ByteArray? {
+    fun forward(query: DnsQueryPacket, vpnService: VpnService, timeoutMillis: Int = 2_000): ByteArray? {
         val socket = DatagramSocket()
 
         return try {
@@ -14,7 +14,7 @@ object DnsForwarder {
                 return null
             }
 
-            socket.soTimeout = 2_000
+            socket.soTimeout = timeoutMillis.coerceIn(1_000, 10_000)
 
             val request = DatagramPacket(
                 query.dnsPayload,
