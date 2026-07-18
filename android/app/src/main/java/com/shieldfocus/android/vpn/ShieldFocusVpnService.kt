@@ -205,8 +205,8 @@ class ShieldFocusVpnService : VpnService() {
         updateStatus(VpnConnectionState.Connected, connectedAtMillis = System.currentTimeMillis())
 
         val executor = ThreadPoolExecutor(
-            2,
-            4,
+            DNS_WORKER_COUNT,
+            DNS_WORKER_COUNT,
             30L,
             TimeUnit.SECONDS,
             ArrayBlockingQueue(128),
@@ -265,6 +265,7 @@ class ShieldFocusVpnService : VpnService() {
                 if (query.hostname.isBlank()) {
                     continue
                 }
+                val receivedAtNanos = System.nanoTime()
 
                 val now = System.currentTimeMillis()
                 if (now >= policyRefreshAt) {
@@ -284,7 +285,8 @@ class ShieldFocusVpnService : VpnService() {
                             routeSelection = routeSelection,
                             store = store,
                             output = output,
-                            outputLock = outputLock
+                            outputLock = outputLock,
+                            receivedAtNanos = receivedAtNanos
                         )
                     }
                 } catch (_: RejectedExecutionException) {
@@ -315,13 +317,21 @@ class ShieldFocusVpnService : VpnService() {
         routeSelection: DnsRouteSelection,
         store: ProtectionStore,
         output: FileOutputStream,
-        outputLock: Any
+        outputLock: Any,
+        receivedAtNanos: Long
     ) {
+        val startedAtNanos = System.nanoTime()
+        var policyFinishedAtNanos = startedAtNanos
+        var forwardingStartedAtNanos = startedAtNanos
+        var forwardingFinishedAtNanos = startedAtNanos
+        var outcome = "failure"
         try {
             val decision = policy.decide(query.hostname)
+            policyFinishedAtNanos = System.nanoTime()
             val safeSearchTarget = SafeSearchPolicy.cnameTarget(query.hostname, settings.safeSearchEnabled)
             val dnsPayload = when {
                 !decision.allow -> {
+                    outcome = "blocked"
                     recordDnsBlocked(query.ipVersion)
                     enqueueDecisionLog(
                         store,
@@ -331,6 +341,7 @@ class ShieldFocusVpnService : VpnService() {
                     DnsPacketCodec.buildBlockedDnsPayload(query)
                 }
                 safeSearchTarget != null -> {
+                    outcome = "safesearch"
                     recordDnsSuccess(query.ipVersion)
                     enqueueDecisionLog(
                         store,
@@ -339,35 +350,77 @@ class ShieldFocusVpnService : VpnService() {
                     )
                     DnsPacketCodec.buildCnameDnsPayload(query, safeSearchTarget)
                 }
-                else -> when (
+                else -> {
+                    forwardingStartedAtNanos = System.nanoTime()
                     val result = DnsForwarder.forwardResult(
                         query = query,
                         vpnService = this,
                         timeoutMillis = settings.dnsTimeoutMillis,
                         fallbackServers = routeSelection.networkDnsServers + fallbackDnsResolvers()
                     )
-                ) {
-                    is DnsForwardResult.Success -> {
-                        recordDnsSuccess(query.ipVersion)
-                        enqueueDecisionLog(
-                            store,
-                            settings,
-                            Decision(query.hostname, true, decision.logReason())
-                        )
-                        result.payload
-                    }
-                    else -> {
-                        recordDnsFailure(query.ipVersion)
-                        DnsFailureResponse.servFail(query)
+                    forwardingFinishedAtNanos = System.nanoTime()
+                    when (result) {
+                        is DnsForwardResult.Success -> {
+                            outcome = "allowed"
+                            recordDnsSuccess(query.ipVersion)
+                            enqueueDecisionLog(
+                                store,
+                                settings,
+                                Decision(query.hostname, true, decision.logReason())
+                            )
+                            result.payload
+                        }
+                        else -> {
+                            outcome = "resolver_failure"
+                            recordDnsFailure(query.ipVersion)
+                            DnsFailureResponse.servFail(query)
+                        }
                     }
                 }
             }
             writeResponse(output, outputLock, query, dnsPayload)
+            logDnsTimingIfSlow(
+                receivedAtNanos,
+                startedAtNanos,
+                policyFinishedAtNanos,
+                forwardingStartedAtNanos,
+                forwardingFinishedAtNanos,
+                System.nanoTime(),
+                outcome
+            )
         } catch (error: Exception) {
             Log.e(TAG, "DNS request processing failed", error)
             writeResponse(output, outputLock, query, DnsFailureResponse.servFail(query))
         }
     }
+
+    private fun logDnsTimingIfSlow(
+        receivedAtNanos: Long,
+        startedAtNanos: Long,
+        policyFinishedAtNanos: Long,
+        forwardingStartedAtNanos: Long,
+        forwardingFinishedAtNanos: Long,
+        responseWrittenAtNanos: Long,
+        outcome: String
+    ) {
+        val totalMillis = nanosToMillis(responseWrittenAtNanos - receivedAtNanos)
+        if (totalMillis < SLOW_DNS_LOG_THRESHOLD_MILLIS) return
+        val queueMillis = nanosToMillis(startedAtNanos - receivedAtNanos)
+        val policyMillis = nanosToMillis(policyFinishedAtNanos - startedAtNanos)
+        val forwardMillis = if (forwardingStartedAtNanos > policyFinishedAtNanos) {
+            nanosToMillis(forwardingFinishedAtNanos - forwardingStartedAtNanos)
+        } else {
+            0L
+        }
+        val writeMillis = nanosToMillis(responseWrittenAtNanos - maxOf(policyFinishedAtNanos, forwardingFinishedAtNanos))
+        Log.w(
+            TAG,
+            "Slow DNS request outcome=$outcome queueMs=$queueMillis policyMs=$policyMillis " +
+                "forwardMs=$forwardMillis writeMs=$writeMillis totalMs=$totalMillis"
+        )
+    }
+
+    private fun nanosToMillis(value: Long): Long = TimeUnit.NANOSECONDS.toMillis(value.coerceAtLeast(0L))
 
     private fun enqueueDecisionLog(
         store: ProtectionStore,
@@ -531,6 +584,8 @@ class ShieldFocusVpnService : VpnService() {
 
     companion object {
         private const val POLICY_REFRESH_MILLIS = 1_000L
+        private const val DNS_WORKER_COUNT = 6
+        private const val SLOW_DNS_LOG_THRESHOLD_MILLIS = 100L
         private const val UNSUPPORTED_PACKET_LOG_INTERVAL_MILLIS = 30_000L
         const val ACTION_START = "com.shieldfocus.android.vpn.action.START"
         const val ACTION_STOP = "com.shieldfocus.android.vpn.action.STOP"
