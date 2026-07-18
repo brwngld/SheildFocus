@@ -1423,17 +1423,17 @@ private fun BlockListTabContent(
                                 preset = preset.copy(meta = "${compactCount(domainCount)} domains - Category bundle"),
                                 imported = preset.id in importedPresetIds,
                                 enabled = enabled,
-                                activeCategoryIds = if (enabled) availablePresetCategoryIds.intersect(activeCategoryIds) else emptySet(),
+                                activeCategoryIds = availablePresetCategoryIds.intersect(activeCategoryIds),
                                 onImport = {
                                     onImportedPresetIdsChange(importedPresetIds + preset.id)
                                     onEnabledPresetIdsChange(enabledPresetIds + preset.id)
                                 },
                                 onEnabledChange = { enabled ->
-                                    onEnabledPresetIdsChange(if (enabled) {
-                                        enabledPresetIds + preset.id
+                                    if (enabled) {
+                                        onEnabledPresetIdsChange(enabledPresetIds + preset.id)
                                     } else {
-                                        enabledPresetIds - preset.id
-                                    })
+                                        onEnabledPresetIdsChange(enabledPresetIds - preset.id)
+                                    }
                                 }
                             )
                         }

@@ -29,20 +29,42 @@ class ProtectionPresetCatalogTest {
     }
 
     @Test
-    fun categoryFilteringDoesNotChangeEnabledPresetState() {
+    fun categoryStateDoesNotDependOnEnabledPresets() {
         val enabled = setOf("shieldfocus-default", "family-protection")
-        val active = ProtectionPresetCatalog.allCategoryIds - "gambling"
-        assertFalse("gambling" in ProtectionPresetCatalog.effectiveCategories(enabled, active))
+        val selected = setOf("adult-content", "gambling", "trackers")
+        val effective = ProtectionPresetCatalog.effectiveCategories(enabled, selected)
+
+        assertTrue("adult-content" in effective)
+        assertTrue("gambling" in effective)
+        assertTrue("trackers" in effective)
+        assertFalse("malware-phishing" in effective)
         assertEquals(setOf("shieldfocus-default", "family-protection"), enabled)
     }
 
     @Test
-    fun lastCategoryCannotBeDisabledForEnabledList() {
-        assertFalse(
+    fun categoryCanBeDisabledWhilePresetRemainsEnabled() {
+        assertTrue(
             ProtectionPresetCatalog.canDisableCategory(
                 categoryId = "malware-phishing",
                 enabledPresetIds = setOf("malware-list"),
                 activeCategoryIds = setOf("malware-phishing")
+            )
+        )
+        assertFalse(
+            "malware-phishing" in ProtectionPresetCatalog.effectiveCategories(
+                enabledPresetIds = setOf("malware-list"),
+                activeCategoryIds = emptySet()
+            )
+        )
+    }
+
+    @Test
+    fun categoryWithoutAnEnabledPresetIsStillEnforced() {
+        assertEquals(
+            setOf("gambling"),
+            ProtectionPresetCatalog.effectiveCategories(
+                enabledPresetIds = emptySet(),
+                activeCategoryIds = setOf("gambling")
             )
         )
     }

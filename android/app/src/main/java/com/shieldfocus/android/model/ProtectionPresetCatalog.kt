@@ -17,17 +17,11 @@ object ProtectionPresetCatalog {
     val allCategoryIds: Set<String> = categoryIdsByPreset.values.flatten().toSet()
 
     fun effectiveCategories(enabledPresetIds: Set<String>, activeCategoryIds: Set<String>): Set<String> =
-        categoriesFor(enabledPresetIds).intersect(activeCategoryIds)
+        activeCategoryIds
 
     fun canDisableCategory(
         categoryId: String,
         enabledPresetIds: Set<String>,
         activeCategoryIds: Set<String>
-    ): Boolean {
-        val remaining = activeCategoryIds - categoryId
-        return enabledPresetIds.none { presetId ->
-            val presetCategories = categoryIdsByPreset[presetId].orEmpty()
-            presetCategories.isNotEmpty() && presetCategories.intersect(remaining).isEmpty()
-        }
-    }
+    ): Boolean = categoryId in activeCategoryIds
 }
